@@ -10,6 +10,30 @@
 
 namespace dart_runner {
 
+class ElfSnapshot {
+ public:
+  ElfSnapshot() {}
+  ~ElfSnapshot();
+  ElfSnapshot(ElfSnapshot&& other) : handle_(other.handle_) {
+    other.handle_ = nullptr;
+  }
+  ElfSnapshot& operator=(ElfSnapshot&& other) {
+    std::swap(handle_, other.handle_);
+    return *this;
+  }
+  bool Load(fdio_ns_t* namespc, const std::string& path);
+  const uint8_t* VmData() const;
+  const uint8_t* VmInstrs() const;
+  const uint8_t* IsolateData() const;
+  const uint8_t* IsolateInstrs() const;
+ private:
+  void* handle_ = nullptr;
+  const uint8_t* Resolve(const char* symbol) const;
+  // Disallow copy and assignment.
+  ElfSnapshot(const ElfSnapshot&) = delete;
+  ElfSnapshot& operator=(const ElfSnapshot&) = delete;
+};
+
 class MappedResource {
  public:
   MappedResource() : address_(nullptr), size_(0) {}
