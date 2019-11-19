@@ -26,6 +26,7 @@ class ElfSnapshot {
   const uint8_t* VmInstrs() const;
   const uint8_t* IsolateData() const;
   const uint8_t* IsolateInstrs() const;
+
  private:
   void* handle_ = nullptr;
   const uint8_t* Resolve(const char* symbol) const;
