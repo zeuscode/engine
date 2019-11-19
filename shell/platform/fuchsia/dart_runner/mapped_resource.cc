@@ -110,8 +110,10 @@ MappedResource::~MappedResource() {
 
 bool ElfSnapshot::Load(fdio_ns_t* namespc, const std::string& path) {
   fuchsia::mem::Buffer vmo;
-  if (!OpenVmo(&vmo, namespc, path, /*executable=*/true))
+  if (!OpenVmo(&vmo, namespc, path, /*executable=*/true)) {
+    FX_LOGF(ERROR, LOG_TAG, "Failed to open VMO for %s", path.c_str());
     return false;
+  }
   void* const handle = dlopen_vmo(vmo.vmo.get(), RTLD_LAZY | RTLD_LOCAL);
   if (handle == nullptr) {
     FX_LOGF(ERROR, LOG_TAG, "Failed to load ELF snapshot: %s (reason: %s)",
