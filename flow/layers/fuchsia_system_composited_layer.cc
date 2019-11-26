@@ -7,14 +7,20 @@
 namespace flutter {
 
 FuchsiaSystemCompositedLayer::FuchsiaSystemCompositedLayer(SkColor color,
+                                                           SkAlpha opacity,
                                                            float elevation)
-    : ElevatedContainerLayer(elevation), color_(color) {}
+    : ElevatedContainerLayer(elevation), color_(color), opacity_(opacity) {}
 
 void FuchsiaSystemCompositedLayer::Preroll(PrerollContext* context,
                                            const SkMatrix& matrix) {
   TRACE_EVENT0("flutter", "FuchsiaSystemCompositedLayer::Preroll");
 
+  const float parent_is_opaque = context->is_opaque;
+  context->mutators_stack.PushOpacity(opacity_);
+  context->is_opaque = parent_is_opaque && (opacity_ == 255);
   ElevatedContainerLayer::Preroll(context, matrix);
+  context->is_opaque = parent_is_opaque;
+  context->mutators_stack.Pop();
 
   // System-composite this layer if its elevated.
   if (elevation() != 0.0f) {
@@ -41,14 +47,15 @@ void FuchsiaSystemCompositedLayer::UpdateScene(SceneUpdateContext& context) {
 
   TRACE_EVENT_INSTANT0("flutter", "retained cache miss, creating");
   // If we can't find an existing retained surface, create one.
-  SceneUpdateContext::Frame frame(context, rrect_, color_, elevation(), this);
+  SceneUpdateContext::Frame frame(context, rrect_, color_, opacity_ / 255.0f,
+                                  elevation(), this);
   for (auto& layer : layers()) {
     if (layer->needs_painting()) {
       frame.AddPaintLayer(layer.get());
     }
   }
 
-  ContainerLayer::UpdateScene(context);
+  ElevatedContainerLayer::UpdateScene(context);
 }
 
 }  // namespace flutter

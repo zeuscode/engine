@@ -6,21 +6,24 @@
 #define FLUTTER_FLOW_LAYERS_PHYSICAL_SHAPE_LAYER_H_
 
 #include "flutter/flow/layers/elevated_container_layer.h"
-#if defined(OS_FUCHSIA)
+#if 0  // defined(OS_FUCHSIA)
 #include "flutter/flow/layers/fuchsia_system_composited_layer.h"
 #endif
 
 namespace flutter {
 
-#if !defined(OS_FUCHSIA)
+#if 1  // !defined(OS_FUCHSIA)
 class PhysicalShapeLayerBase : public ElevatedContainerLayer {
  public:
   static bool can_system_composite() { return false; }
 
-  PhysicalShapeLayerBase(SkColor color, float elevation)
+  PhysicalShapeLayerBase(SkColor color, SkAlpha opacity, float elevation)
       : ElevatedContainerLayer(elevation), color_(color) {}
 
+  void set_dimensions(SkRRect rrect) {}
+
   SkColor color() const { return color_; }
+  SkAlpha opacity() const { return SK_AlphaOPAQUE; }
 
  private:
   SkColor color_;

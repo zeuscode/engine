@@ -17,35 +17,35 @@ PhysicalShapeLayer::PhysicalShapeLayer(SkColor color,
                                        float elevation,
                                        const SkPath& path,
                                        Clip clip_behavior)
-    : PhysicalShapeLayerBase(color, elevation),
+    : PhysicalShapeLayerBase(color, SK_AlphaOPAQUE, elevation),
       shadow_color_(shadow_color),
       path_(path),
       clip_behavior_(clip_behavior) {
   // If rendering as a separate frame using the system compositor, then make
   // sure to set up the properties needed to do so.
-#if defined(OS_FUCHSIA)
-  SkRect rect;
-  SkRRect rrect;
-  if (path.isRect(&rect)) {
-    rrect = SkRRect::MakeRect(rect);
-  } else if (path.isRRect(&rrect)) {
-    // Nothing needed here, as isRRect will fill in frameRRect_ already.
-  } else if (path.isOval(&rect)) {
-    // isRRect returns false for ovals, so we need to explicitly check isOval
-    // as well.
-    rrect = SkRRect::MakeOval(rect);
-  } else {
-    // Scenic currently doesn't provide an easy way to create shapes from
-    // arbitrary paths.
-    // For shapes that cannot be represented as a rounded rectangle we
-    // default to use the bounding rectangle.
-    // TODO(amirh): fix this once we have a way to create a Scenic shape from
-    // an SkPath.
-    rrect = SkRRect::MakeRect(path.getBounds());
-  }
+  if (PhysicalShapeLayerBase::can_system_composite()) {
+    SkRect rect;
+    SkRRect rrect;
+    if (path.isRect(&rect)) {
+      rrect = SkRRect::MakeRect(rect);
+    } else if (path.isRRect(&rrect)) {
+      // Nothing needed here, as isRRect will fill in frameRRect_ already.
+    } else if (path.isOval(&rect)) {
+      // isRRect returns false for ovals, so we need to explicitly check isOval
+      // as well.
+      rrect = SkRRect::MakeOval(rect);
+    } else {
+      // Scenic currently doesn't provide an easy way to create shapes from
+      // arbitrary paths.
+      // For shapes that cannot be represented as a rounded rectangle we
+      // default to use the bounding rectangle.
+      // TODO(amirh): fix this once we have a way to create a Scenic shape from
+      // an SkPath.
+      rrect = SkRRect::MakeRect(path.getBounds());
+    }
 
-  set_dimensions(rrect);
-#endif
+    set_dimensions(rrect);
+  }
 }
 
 void PhysicalShapeLayer::Preroll(PrerollContext* context,
@@ -53,9 +53,15 @@ void PhysicalShapeLayer::Preroll(PrerollContext* context,
   TRACE_EVENT0("flutter", "PhysicalShapeLayer::Preroll");
   PhysicalShapeLayerBase::Preroll(context, matrix);
 
-  // Use the system compositor for shadows if it's available.  0-elevation
-  // doesn't cast shadows, so it never uses the system compositor.
-  if (PhysicalShapeLayerBase::can_system_composite() && elevation() != 0) {
+  // Use the system compositor for shadows if it's available and we are at a
+  // non-zero elevation.  |PhysicalShapeLayerBase| has already checked the
+  // elevation condition and set |needs_system_composite|.
+  if (PhysicalShapeLayerBase::can_system_composite()) {
+    // If the frame behind us is opaque, don't punch a hole in it for group
+    // opacity.
+    if (context->is_opaque) {
+      set_paint_bounds(SkRect::MakeEmpty());
+    }
     return;
   }
 
