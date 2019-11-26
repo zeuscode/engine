@@ -74,9 +74,9 @@ void ContainerLayer::UpdateScene(SceneUpdateContext& context) {
 void ContainerLayer::UpdateSceneChildren(SceneUpdateContext& context) {
   FML_DCHECK(needs_system_composite());
 
-  // Paint all of the layers which need to be drawn into the container.
-  // These may be flattened down to a containing
-  for (auto& layer : layers_) {
+  // Update all of the Layers which are part of the container.  This may cause
+  // additional child |Frame|s to be created.
+  for (auto& layer : layers()) {
     if (layer->needs_system_composite()) {
       layer->UpdateScene(context);
     }

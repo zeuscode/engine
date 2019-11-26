@@ -137,6 +137,7 @@ TEST_F(PhysicalShapeLayerTest, ElevationSimple) {
   EXPECT_TRUE(layer->needs_painting());
   EXPECT_FALSE(layer->needs_system_composite());
 #endif
+  EXPECT_EQ(layer->elevation(), initial_elevation);
   EXPECT_EQ(layer->total_elevation(), initial_elevation);
 
   // The Fuchsia system compositor handles all elevated PhysicalShapeLayers and
@@ -163,12 +164,13 @@ TEST_F(PhysicalShapeLayerTest, ElevationComplex) {
   // |         \
   // |       layers[2] +3.0f = 4.0f
   // |          |
-  // |       layers[3] +4.0f = 8.0f
+  // |       layers[3] +4.0f = 8.0f (clamped to 6.0f)
   // |
   // |
   // layers[1] + 2.0f = 3.0f
   constexpr float initial_elevations[4] = {1.0f, 2.0f, 3.0f, 4.0f};
-  constexpr float total_elevations[4] = {1.0f, 3.0f, 4.0f, 8.0f};
+  constexpr float clamped_elevations[4] = {1.0f, 2.0f, 3.0f, 2.0f};
+  constexpr float total_elevations[4] = {1.0f, 3.0f, 4.0f, 6.0f};
   SkPath layer_path;
   layer_path.addRect(0, 0, 80, 80).close();
 
@@ -182,6 +184,7 @@ TEST_F(PhysicalShapeLayerTest, ElevationComplex) {
   layers[0]->Add(layers[2]);
   layers[2]->Add(layers[3]);
 
+  preroll_context()->frame_physical_depth = 6.0f;  // Clamp max depth
   layers[0]->Preroll(preroll_context(), SkMatrix());
   for (int i = 0; i < 4; i += 1) {
     // On Fuchsia, the system compositor handles all elevated
@@ -193,12 +196,13 @@ TEST_F(PhysicalShapeLayerTest, ElevationComplex) {
     EXPECT_TRUE(layers[i]->needs_system_composite());
 #else
     EXPECT_EQ(layers[i]->paint_bounds(),
-              (PhysicalShapeLayer::ComputeShadowBounds(
-                  layer_path.getBounds(), initial_elevations[i],
-                  1.0f /* pixel_ratio */)));
+              PhysicalShapeLayer::ComputeShadowBounds(layer_path.getBounds(),
+                                                      clamped_elevations[i],
+                                                      1.0f /* pixel_raio */));
     EXPECT_TRUE(layers[i]->needs_painting());
     EXPECT_FALSE(layers[i]->needs_system_composite());
 #endif
+    EXPECT_EQ(layers[i]->elevation(), clamped_elevations[i]);
     EXPECT_EQ(layers[i]->total_elevation(), total_elevations[i]);
   }
 
