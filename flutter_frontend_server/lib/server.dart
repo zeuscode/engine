@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart=2.8
 library flutter_frontend_server;
 
 import 'dart:async';
@@ -15,8 +16,8 @@ import 'package:frontend_server/frontend_server.dart' as frontend
         listenAndCompile,
         argParser,
         usage,
-        ProgramTransformer;
-import 'package:kernel/ast.dart';
+        ProgramTransformer,
+        ToStringTransformer;
 import 'package:path/path.dart' as path;
 import 'package:vm/incremental_compiler.dart';
 
@@ -28,10 +29,12 @@ class _FlutterFrontendCompiler implements frontend.CompilerInterface {
   _FlutterFrontendCompiler(StringSink output,
       {bool unsafePackageSerialization,
       bool useDebuggerModuleNames,
+      bool emitDebugMetadata,
       frontend.ProgramTransformer transformer})
       : _compiler = frontend.FrontendCompiler(output,
             transformer: transformer,
             useDebuggerModuleNames: useDebuggerModuleNames,
+            emitDebugMetadata: emitDebugMetadata,
             unsafePackageSerialization: unsafePackageSerialization);
 
   @override
@@ -41,7 +44,7 @@ class _FlutterFrontendCompiler implements frontend.CompilerInterface {
   }
 
   @override
-  Future<Null> recompileDelta({String entryPoint}) async {
+  Future<Null> recompileDelta({String entryPoint}) async { // ignore: prefer_void_to_null
     return _compiler.recompileDelta(entryPoint: entryPoint);
   }
 
@@ -61,7 +64,7 @@ class _FlutterFrontendCompiler implements frontend.CompilerInterface {
   }
 
   @override
-  Future<Null> compileExpression(
+  Future<Null> compileExpression( // ignore: prefer_void_to_null
       String expression,
       List<String> definitions,
       List<String> typeDefinitions,
@@ -73,7 +76,7 @@ class _FlutterFrontendCompiler implements frontend.CompilerInterface {
   }
 
   @override
-  Future<Null> compileExpressionToJs(
+  Future<Null> compileExpressionToJs( // ignore: prefer_void_to_null
       String libraryUri,
       int line,
       int column,
@@ -108,13 +111,21 @@ Future<int> starter(
   frontend.ProgramTransformer transformer,
 }) async {
   ArgResults options;
-  frontend.argParser.addMultiOption(
-    'delete-tostring-package-uri',
-    help: 'Replaces implementations of `toString` with `super.toString()` for '
+  // TODO(alexmarkov): Remove handling of --delete-tostring-package-uri option
+  //  after it is added to Dart SDK,
+  //  https://github.com/dart-lang/sdk/issues/46022.
+  final bool handleDeleteToString =
+      !frontend.argParser.options.containsKey('delete-tostring-package-uri');
+  if (handleDeleteToString) {
+    frontend.argParser.addMultiOption(
+      'delete-tostring-package-uri',
+      help:
+          'Replaces implementations of `toString` with `super.toString()` for '
           'specified package',
-    valueHelp: 'dart:ui',
-    defaultsTo: const <String>[],
-  );
+      valueHelp: 'dart:ui',
+      defaultsTo: const <String>[],
+    );
+  }
   try {
     options = frontend.argParser.parse(args);
   } catch (error) {
@@ -123,7 +134,8 @@ Future<int> starter(
     return 1;
   }
 
-  final Set<String> deleteToStringPackageUris = (options['delete-tostring-package-uri'] as List<String>).toSet();
+  final Set<String> deleteToStringPackageUris =
+      (options['delete-tostring-package-uri'] as List<String>).toSet();
 
   if (options['train'] as bool) {
     if (!options.rest.isNotEmpty) {
@@ -144,12 +156,12 @@ Future<int> starter(
           '--target=flutter',
           '--track-widget-creation',
           '--enable-asserts',
-          '--gen-bytecode',
-          '--bytecode-options=source-positions,local-var-info,debugger-stops,instance-field-initializers,keep-unreachable-code,avoid-closure-call-instructions',
         ]);
         compiler ??= _FlutterFrontendCompiler(
           output,
-          transformer: ToStringTransformer(null, deleteToStringPackageUris),
+          transformer: handleDeleteToString
+              ? frontend.ToStringTransformer(null, deleteToStringPackageUris)
+              : null,
         );
 
         await compiler.compile(input, options);
@@ -169,8 +181,11 @@ Future<int> starter(
   }
 
   compiler ??= _FlutterFrontendCompiler(output,
-      transformer: ToStringTransformer(transformer, deleteToStringPackageUris),
+      transformer: handleDeleteToString
+          ? frontend.ToStringTransformer(transformer, deleteToStringPackageUris)
+          : null,
       useDebuggerModuleNames: options['debugger-module-names'] as bool,
+      emitDebugMetadata: options['experimental-emit-debug-metadata'] as bool,
       unsafePackageSerialization:
           options['unsafe-package-serialization'] as bool);
 
@@ -181,87 +196,4 @@ Future<int> starter(
   final Completer<int> completer = Completer<int>();
   frontend.listenAndCompile(compiler, input ?? stdin, options, completer);
   return completer.future;
-}
-
-// Transformer/visitor for toString
-// If we add any more of these, they really should go into a separate library.
-
-/// A [RecursiveVisitor] that replaces [Object.toString] overrides with
-/// `super.toString()`.
-class ToStringVisitor extends RecursiveVisitor<void> {
-  /// The [packageUris] must not be null.
-  ToStringVisitor(this._packageUris) : assert(_packageUris != null);
-
-  /// A set of package URIs to apply this transformer to, e.g. 'dart:ui' and
-  /// 'package:flutter/foundation.dart'.
-  final Set<String> _packageUris;
-
-  /// Turn 'dart:ui' into 'dart:ui', or
-  /// 'package:flutter/src/semantics_event.dart' into 'package:flutter'.
-  String _importUriToPackage(Uri importUri) => '${importUri.scheme}:${importUri.pathSegments.first}';
-
-  bool _isInTargetPackage(Procedure node) {
-    return _packageUris.contains(_importUriToPackage(node.enclosingLibrary.importUri));
-  }
-
-  bool _hasKeepAnnotation(Procedure node) {
-    for (ConstantExpression expression in node.annotations.whereType<ConstantExpression>()) {
-      if (expression.constant is! InstanceConstant) {
-        continue;
-      }
-      final InstanceConstant constant = expression.constant as InstanceConstant;
-      if (constant.classNode.name == '_KeepToString' && constant.classNode.enclosingLibrary.importUri.toString() == 'dart:ui') {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  @override
-  void visitProcedure(Procedure node) {
-    if (
-      node.name.name        == 'toString' &&
-      node.enclosingClass   != null       &&
-      node.enclosingLibrary != null       &&
-      !node.isStatic                      &&
-      !node.isAbstract                    &&
-      !node.enclosingClass.isEnum         &&
-      _isInTargetPackage(node)            &&
-      !_hasKeepAnnotation(node)
-    ) {
-      node.function.body.replaceWith(
-        ReturnStatement(
-          SuperMethodInvocation(
-            node.name,
-            Arguments(<Expression>[]),
-          ),
-        ),
-      );
-    }
-  }
-
-  @override
-  void defaultMember(Member node) {}
-}
-
-/// Replaces [Object.toString] overrides with calls to super for the specified
-/// [packageUris].
-class ToStringTransformer extends frontend.ProgramTransformer {
-  /// The [packageUris] parameter must not be null, but may be empty.
-  ToStringTransformer(this._child, this._packageUris) : assert(_packageUris != null);
-
-  final frontend.ProgramTransformer _child;
-
-  /// A set of package URIs to apply this transformer to, e.g. 'dart:ui' and
-  /// 'package:flutter/foundation.dart'.
-  final Set<String> _packageUris;
-
-  @override
-  void transform(Component component) {
-    assert(_child is! ToStringTransformer);
-    if (_packageUris.isNotEmpty) {
-      component.visitChildren(ToStringVisitor(_packageUris));
-    }
-    _child?.transform(component);
-  }
 }

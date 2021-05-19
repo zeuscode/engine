@@ -2,18 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef FLUTTER_SHELL_PLATFORM_ANDROID_PLATFORM_VIEW_ANDROID_JNI_H_
-#define FLUTTER_SHELL_PLATFORM_ANDROID_PLATFORM_VIEW_ANDROID_JNI_H_
+#ifndef FLUTTER_SHELL_PLATFORM_ANDROID_JNI_PLATFORM_VIEW_ANDROID_JNI_H_
+#define FLUTTER_SHELL_PLATFORM_ANDROID_JNI_PLATFORM_VIEW_ANDROID_JNI_H_
 
 #include "flutter/fml/macros.h"
 #include "flutter/fml/mapping.h"
 
+#include "flutter/flow/embedded_views.h"
+#include "flutter/lib/ui/window/platform_message.h"
+#include "flutter/shell/platform/android/surface/android_native_window.h"
+#include "third_party/skia/include/core/SkMatrix.h"
+
 #if OS_ANDROID
 #include "flutter/fml/platform/android/jni_weak_ref.h"
 #endif
-
-#include "flutter/lib/ui/window/platform_message.h"
-#include "third_party/skia/include/core/SkMatrix.h"
 
 namespace flutter {
 
@@ -39,7 +41,7 @@ class PlatformViewAndroidJNI {
   /// @brief      Sends a platform message. The message may be empty.
   ///
   virtual void FlutterViewHandlePlatformMessage(
-      fml::RefPtr<flutter::PlatformMessage> message,
+      std::unique_ptr<flutter::PlatformMessage> message,
       int responseId) = 0;
 
   //----------------------------------------------------------------------------
@@ -114,11 +116,15 @@ class PlatformViewAndroidJNI {
   ///
   /// @note       Must be called from the platform thread.
   ///
-  virtual void FlutterViewOnDisplayPlatformView(int view_id,
-                                                int x,
-                                                int y,
-                                                int width,
-                                                int height) = 0;
+  virtual void FlutterViewOnDisplayPlatformView(
+      int view_id,
+      int x,
+      int y,
+      int width,
+      int height,
+      int viewWidth,
+      int viewHeight,
+      MutatorsStack mutators_stack) = 0;
 
   //----------------------------------------------------------------------------
   /// @brief      Positions and sizes an overlay surface in hybrid composition.
@@ -130,8 +136,69 @@ class PlatformViewAndroidJNI {
                                                 int y,
                                                 int width,
                                                 int height) = 0;
+
+  //----------------------------------------------------------------------------
+  /// @brief      Initiates a frame if using hybrid composition.
+  ///
+  ///
+  /// @note       Must be called from the platform thread.
+  ///
+  virtual void FlutterViewBeginFrame() = 0;
+
+  //----------------------------------------------------------------------------
+  /// @brief      Indicates that the current frame ended.
+  ///             It's used to clean up state.
+  ///
+  /// @note       Must be called from the platform thread.
+  ///
+  virtual void FlutterViewEndFrame() = 0;
+
+  //------------------------------------------------------------------------------
+  /// The metadata returned from Java which is converted into an |OverlayLayer|
+  /// by |SurfacePool|.
+  ///
+  struct OverlayMetadata {
+    OverlayMetadata(int id, fml::RefPtr<AndroidNativeWindow> window)
+        : id(id), window(window){};
+
+    ~OverlayMetadata() = default;
+
+    // A unique id to identify the overlay when it gets recycled.
+    const int id;
+
+    // Holds a reference to the native window. That is, an `ANativeWindow`,
+    // which is the C counterpart of the `android.view.Surface` object in Java.
+    const fml::RefPtr<AndroidNativeWindow> window;
+  };
+
+  //----------------------------------------------------------------------------
+  /// @brief      Instantiates an overlay surface in hybrid composition and
+  ///             provides the necessary metadata to operate the surface in C.
+  ///
+  /// @note       Must be called from the platform thread.
+  ///
+  virtual std::unique_ptr<PlatformViewAndroidJNI::OverlayMetadata>
+  FlutterViewCreateOverlaySurface() = 0;
+
+  //----------------------------------------------------------------------------
+  /// @brief      Destroys the overlay surfaces.
+  ///
+  /// @note       Must be called from the platform thread.
+  ///
+  virtual void FlutterViewDestroyOverlaySurfaces() = 0;
+
+  //----------------------------------------------------------------------------
+  /// @brief      Computes the locale Android would select.
+  ///
+  virtual std::unique_ptr<std::vector<std::string>>
+  FlutterViewComputePlatformResolvedLocale(
+      std::vector<std::string> supported_locales_data) = 0;
+
+  virtual double GetDisplayRefreshRate() = 0;
+
+  virtual bool RequestDartDeferredLibrary(int loading_unit_id) = 0;
 };
 
 }  // namespace flutter
 
-#endif  // FLUTTER_SHELL_PLATFORM_ANDROID_PLATFORM_VIEW_ANDROID_JNI_H_
+#endif  // FLUTTER_SHELL_PLATFORM_ANDROID_JNI_PLATFORM_VIEW_ANDROID_JNI_H_

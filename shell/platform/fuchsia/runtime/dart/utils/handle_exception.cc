@@ -9,10 +9,11 @@
 #include <lib/syslog/global.h>
 #include <lib/zx/vmo.h>
 #include <sys/types.h>
-#include <third_party/tonic/converter/dart_converter.h>
 #include <zircon/status.h>
 
 #include <string>
+
+#include "third_party/tonic/converter/dart_converter.h"
 
 #include "logging.h"
 
@@ -81,6 +82,7 @@ fuchsia::feedback::CrashReport BuildCrashReport(
   fuchsia::feedback::CrashReport report;
   report.set_program_name(component_url);
   report.set_specific_report(std::move(specific_report));
+  report.set_is_fatal(false);
   return report;
 }
 

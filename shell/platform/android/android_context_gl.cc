@@ -59,7 +59,7 @@ static void LogLastEGLError() {
   FML_LOG(ERROR) << "Unknown EGL Error";
 }
 
-static EGLResult<EGLSurface> CreateContext(EGLDisplay display,
+static EGLResult<EGLContext> CreateContext(EGLDisplay display,
                                            EGLConfig config,
                                            EGLContext share = EGL_NO_CONTEXT) {
   EGLint attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
@@ -119,7 +119,7 @@ bool AndroidEGLSurface::IsValid() const {
   return surface_ != EGL_NO_SURFACE;
 }
 
-bool AndroidEGLSurface::MakeCurrent() {
+bool AndroidEGLSurface::MakeCurrent() const {
   if (eglMakeCurrent(display_, surface_, surface_, context_) != EGL_TRUE) {
     FML_LOG(ERROR) << "Could not make the context current";
     LogLastEGLError();
@@ -235,7 +235,7 @@ bool AndroidContextGL::IsValid() const {
   return valid_;
 }
 
-bool AndroidContextGL::ClearCurrent() {
+bool AndroidContextGL::ClearCurrent() const {
   if (eglGetCurrentContext() != context_) {
     return true;
   }
@@ -246,6 +246,14 @@ bool AndroidContextGL::ClearCurrent() {
     return false;
   }
   return true;
+}
+
+EGLContext AndroidContextGL::CreateNewContext() const {
+  bool success;
+  EGLContext context;
+  std::tie(success, context) =
+      CreateContext(environment_->Display(), config_, EGL_NO_CONTEXT);
+  return success ? context : EGL_NO_CONTEXT;
 }
 
 }  // namespace flutter

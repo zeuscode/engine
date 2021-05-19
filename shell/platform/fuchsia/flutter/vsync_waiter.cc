@@ -27,8 +27,8 @@ VsyncWaiter::VsyncWaiter(std::string debug_label,
       debug_label_(std::move(debug_label)),
       session_wait_(session_present_handle, SessionPresentSignal),
       vsync_offset_(vsync_offset),
-      weak_factory_(this),
-      weak_factory_ui_(nullptr) {
+      weak_factory_ui_(nullptr),
+      weak_factory_(this) {
   auto wait_handler = [&](async_dispatcher_t* dispatcher,   //
                           async::Wait* wait,                //
                           zx_status_t status,               //
@@ -80,7 +80,7 @@ VsyncWaiter::~VsyncWaiter() {
 /// Returns the system time at which the next frame is likely to be presented.
 ///
 /// Consider the following scenarios, where in both the
-/// scenarious the result will be the same.
+/// scenarios the result will be the same.
 ///
 /// Scenario 1:
 /// presentation_interval is 2
@@ -197,7 +197,7 @@ void VsyncWaiter::FireCallbackNow() {
   }
   fml::TimePoint previous_vsync = next_vsync - vsync_info.presentation_interval;
 
-  FireCallback(previous_vsync, next_vsync);
+  FireCallback(previous_vsync, next_vsync, false);
 }
 
 }  // namespace flutter_runner

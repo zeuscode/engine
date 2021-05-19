@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "flutter/shell/platform/darwin/common/framework/Headers/FlutterCodecs.h"
+#import "flutter/shell/platform/darwin/common/framework/Headers/FlutterCodecs.h"
+
+#include <cstring>
 
 @implementation FlutterBinaryCodec
 + (instancetype)sharedInstance {
@@ -76,7 +78,7 @@
 }
 
 - (id)decode:(NSData*)message {
-  if (message == nil)
+  if ([message length] == 0)
     return nil;
   BOOL isSimpleValue = NO;
   id decoded = nil;

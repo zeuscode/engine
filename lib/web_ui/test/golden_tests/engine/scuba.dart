@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 import 'dart:async';
 import 'dart:html' as html;
 
@@ -23,8 +22,6 @@ class EngineScubaTester {
 
   static Future<EngineScubaTester> initialize(
       {ui.Size viewportSize = const ui.Size(2400, 1800)}) async {
-    assert(viewportSize != null);
-
     assert(() {
       if (viewportSize.width.ceil() != viewportSize.width ||
           viewportSize.height.ceil() != viewportSize.height) {
@@ -45,13 +42,15 @@ class EngineScubaTester {
 
   Future<void> diffScreenshot(
     String fileName, {
-    ui.Rect region,
-    double maxDiffRatePercent,
+    ui.Rect? region,
+    double? maxDiffRatePercent,
+    bool write = false,
   }) async {
     await matchGoldenFile(
       '$fileName.png',
       region: region ?? viewportRegion,
       maxDiffRatePercent: maxDiffRatePercent,
+      write: write,
     );
   }
 
@@ -62,22 +61,24 @@ class EngineScubaTester {
   Future<void> diffCanvasScreenshot(
     EngineCanvas canvas,
     String fileName, {
-    ui.Rect region,
-    double maxDiffRatePercent,
+    ui.Rect? region,
+    double? maxDiffRatePercent,
+    bool write = false,
   }) async {
     // Wrap in <flt-scene> so that our CSS selectors kick in.
     final html.Element sceneElement = html.Element.tag('flt-scene');
     try {
       sceneElement.append(canvas.rootElement);
-      html.document.body.append(sceneElement);
+      html.document.body!.append(sceneElement);
       String screenshotName = '${fileName}_${canvas.runtimeType}';
-      if (WebExperiments.instance.useCanvasText) {
+      if (WebExperiments.instance!.useCanvasText) {
         screenshotName += '+canvas_measurement';
       }
       await diffScreenshot(
         screenshotName,
         region: region,
         maxDiffRatePercent: maxDiffRatePercent,
+        write: write,
       );
     } finally {
       // The page is reused across tests, so remove the element after taking the
@@ -91,46 +92,44 @@ typedef CanvasTest = FutureOr<void> Function(EngineCanvas canvas);
 
 /// Runs the given test [body] with each type of canvas.
 void testEachCanvas(String description, CanvasTest body,
-    {double maxDiffRate, bool bSkipHoudini = false}) {
+    {double? maxDiffRate}) {
   const ui.Rect bounds = ui.Rect.fromLTWH(0, 0, 600, 800);
   test('$description (bitmap)', () {
     try {
       TextMeasurementService.initialize(rulerCacheCapacity: 2);
-      WebExperiments.instance.useCanvasText = false;
-      return body(BitmapCanvas(bounds));
+      WebExperiments.instance!.useCanvasText = false;
+      WebExperiments.instance!.useCanvasRichText = false;
+      return body(BitmapCanvas(bounds, RenderStrategy()));
     } finally {
-      WebExperiments.instance.useCanvasText = null;
+      WebExperiments.instance!.useCanvasText = null;
+      WebExperiments.instance!.useCanvasRichText = null;
       TextMeasurementService.clearCache();
     }
   });
   test('$description (bitmap + canvas measurement)', () async {
     try {
       TextMeasurementService.initialize(rulerCacheCapacity: 2);
-      WebExperiments.instance.useCanvasText = true;
-      await body(BitmapCanvas(bounds));
+      WebExperiments.instance!.useCanvasText = true;
+      WebExperiments.instance!.useCanvasRichText = false;
+      await body(BitmapCanvas(bounds, RenderStrategy()));
     } finally {
-      WebExperiments.instance.useCanvasText = null;
+      WebExperiments.instance!.useCanvasText = null;
+      WebExperiments.instance!.useCanvasRichText = null;
       TextMeasurementService.clearCache();
     }
   });
   test('$description (dom)', () {
     try {
       TextMeasurementService.initialize(rulerCacheCapacity: 2);
-      return body(DomCanvas());
+      WebExperiments.instance!.useCanvasText = false;
+      WebExperiments.instance!.useCanvasRichText = false;
+      return body(DomCanvas(domRenderer.createElement('flt-picture')));
     } finally {
+      WebExperiments.instance!.useCanvasText = null;
+      WebExperiments.instance!.useCanvasRichText = null;
       TextMeasurementService.clearCache();
     }
   });
-  if (!bSkipHoudini) {
-    test('$description (houdini)', () {
-      try {
-        TextMeasurementService.initialize(rulerCacheCapacity: 2);
-        return body(HoudiniCanvas(bounds));
-      } finally {
-        TextMeasurementService.clearCache();
-      }
-    });
-  }
 }
 
 final ui.TextStyle _defaultTextStyle = ui.TextStyle(
@@ -141,8 +140,8 @@ final ui.TextStyle _defaultTextStyle = ui.TextStyle(
 
 ui.Paragraph paragraph(
   String text, {
-  ui.ParagraphStyle paragraphStyle,
-  ui.TextStyle textStyle,
+  ui.ParagraphStyle? paragraphStyle,
+  ui.TextStyle? textStyle,
   double maxWidth = double.infinity,
 }) {
   final ui.ParagraphBuilder builder =

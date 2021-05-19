@@ -14,7 +14,7 @@
 namespace vulkan {
 
 VulkanApplication::VulkanApplication(
-    VulkanProcTable& p_vk,
+    VulkanProcTable& p_vk,  // NOLINT
     const std::string& application_name,
     std::vector<std::string> enabled_extensions,
     uint32_t application_version,
@@ -100,22 +100,22 @@ VulkanApplication::VulkanApplication(
     return;
   }
 
-  // Now that we have an instance, setup instance proc table entries.
+  // Now that we have an instance, set up instance proc table entries.
   if (!vk.SetupInstanceProcAddresses(instance)) {
-    FML_DLOG(INFO) << "Could not setup instance proc addresses.";
+    FML_DLOG(INFO) << "Could not set up instance proc addresses.";
     return;
   }
 
   instance_ = {instance, [this](VkInstance i) {
-                 FML_LOG(INFO) << "Destroying Vulkan instance";
+                 FML_DLOG(INFO) << "Destroying Vulkan instance";
                  vk.DestroyInstance(i, nullptr);
                }};
 
   if (enable_instance_debugging) {
     auto debug_report = std::make_unique<VulkanDebugReport>(vk, instance_);
     if (!debug_report->IsValid()) {
-      FML_LOG(INFO) << "Vulkan debugging was enabled but could not be setup "
-                       "for this instance.";
+      FML_DLOG(INFO) << "Vulkan debugging was enabled but could not be set up "
+                        "for this instance.";
     } else {
       debug_report_ = std::move(debug_report);
       FML_DLOG(INFO) << "Debug reporting is enabled.";

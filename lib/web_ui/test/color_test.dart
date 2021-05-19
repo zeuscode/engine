@@ -5,13 +5,18 @@
 // @dart = 2.6
 import 'package:ui/ui.dart';
 
+import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
+
+void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
 
 class NotAColor extends Color {
   const NotAColor(int value) : super(value);
 }
 
-void main() {
+void testMain() {
   test('color accessors should work', () {
     const Color foo = Color(0x12345678);
     expect(foo.alpha, equals(0x12));
@@ -50,7 +55,7 @@ void main() {
   test('two colors are only == if they have the same runtime type', () {
     expect(const Color(123), equals(const Color(123)));
     expect(const Color(123),
-        equals(Color(123))); // ignore: prefer_const_constructors
+        equals(Color(123)));
     expect(const Color(123), isNot(equals(const Color(321))));
     expect(const Color(123), isNot(equals(const NotAColor(123))));
     expect(const NotAColor(123), isNot(equals(const Color(123))));

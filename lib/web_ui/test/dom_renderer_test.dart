@@ -5,10 +5,20 @@
 // @dart = 2.6
 import 'dart:html' as html;
 
-import 'package:ui/src/engine.dart';
+import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
+import 'package:ui/src/engine.dart';
 
 void main() {
+  internalBootstrapBrowserTest(() => testMain);
+}
+
+void testMain() {
+  test('populates flt-renderer and flt-build-mode', () {
+    DomRenderer();
+    expect(html.document.body.attributes['flt-renderer'], 'html (requested explicitly)');
+    expect(html.document.body.attributes['flt-build-mode'], 'debug');
+  });
   test('creating elements works', () {
     final DomRenderer renderer = DomRenderer();
     final html.Element element = renderer.createElement('div');
@@ -52,15 +62,15 @@ void main() {
   test('can set style properties on elements', () {
     final DomRenderer renderer = DomRenderer();
     final html.Element element = renderer.createElement('div');
-    renderer.setElementStyle(element, 'color', 'red');
+    DomRenderer.setElementStyle(element, 'color', 'red');
     expect(element.style.color, 'red');
   });
   test('can remove style properties from elements', () {
     final DomRenderer renderer = DomRenderer();
     final html.Element element = renderer.createElement('div');
-    renderer.setElementStyle(element, 'color', 'blue');
+    DomRenderer.setElementStyle(element, 'color', 'blue');
     expect(element.style.color, 'blue');
-    renderer.setElementStyle(element, 'color', null);
+    DomRenderer.setElementStyle(element, 'color', null);
     expect(element.style.color, '');
   });
   test('elements can have children', () {
@@ -75,29 +85,6 @@ void main() {
     final html.Element child = renderer.createElement('div', parent: element);
     renderer.detachElement(child);
     expect(element.children, isEmpty);
-  });
-  test('can reattach detached elements', () {
-    final DomRenderer renderer = DomRenderer();
-    final html.Element element = renderer.createElement('div');
-    final html.Element child = renderer.createElement('div', parent: element);
-    final html.Element otherChild =
-        renderer.createElement('foo', parent: element);
-    renderer.detachElement(child);
-    expect(element.children, hasLength(1));
-    renderer.attachBeforeElement(element, otherChild, child);
-    expect(element.children, hasLength(2));
-  });
-  test('insert two elements in the middle of a child list', () {
-    final DomRenderer renderer = DomRenderer();
-    final html.Element parent = renderer.createElement('div');
-    renderer.createElement('a', parent: parent);
-    final html.Element childD = renderer.createElement('d', parent: parent);
-    expect(parent.innerHtml, '<a></a><d></d>');
-    final html.Element childB = renderer.createElement('b', parent: parent);
-    final html.Element childC = renderer.createElement('c', parent: parent);
-    renderer.attachBeforeElement(parent, childD, childB);
-    renderer.attachBeforeElement(parent, childD, childC);
-    expect(parent.innerHtml, '<a></a><b></b><c></c><d></d>');
   });
 
   test('innerHeight/innerWidth are equal to visualViewport height and width',

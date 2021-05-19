@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include "flutter/shell/common/shell_test_platform_view_vulkan.h"
+
+#include "flutter/common/graphics/persistent_cache.h"
 #include "flutter/vulkan/vulkan_utilities.h"
 
 namespace flutter {
@@ -38,6 +40,12 @@ std::unique_ptr<Surface> ShellTestPlatformViewVulkan::CreateRenderingSurface() {
 }
 
 // |PlatformView|
+std::shared_ptr<ExternalViewEmbedder>
+ShellTestPlatformViewVulkan::CreateExternalViewEmbedder() {
+  return shell_test_external_view_embedder_;
+}
+
+// |PlatformView|
 PointerDataDispatcherMaker ShellTestPlatformViewVulkan::GetDispatcherMaker() {
   return [](DefaultPointerDataDispatcher::Delegate& delegate) {
     return std::make_unique<SmoothPointerDataDispatcher>(delegate);
@@ -70,9 +78,9 @@ ShellTestPlatformViewVulkan::OffScreenSurface::OffScreenSurface(
       VK_MAKE_VERSION(1, 1, 0), true);
 
   if (!application_->IsValid() || !vk_->AreInstanceProcsSetup()) {
-    // Make certain the application instance was created and it setup the
+    // Make certain the application instance was created and it set up the
     // instance proc table entries.
-    FML_DLOG(ERROR) << "Instance proc addresses have not been setup.";
+    FML_DLOG(ERROR) << "Instance proc addresses have not been set up.";
     return;
   }
 
@@ -82,9 +90,9 @@ ShellTestPlatformViewVulkan::OffScreenSurface::OffScreenSurface(
 
   if (logical_device_ == nullptr || !logical_device_->IsValid() ||
       !vk_->AreDeviceProcsSetup()) {
-    // Make certain the device was created and it setup the device proc table
+    // Make certain the device was created and it set up the device proc table
     // entries.
-    FML_DLOG(ERROR) << "Device proc addresses have not been setup.";
+    FML_DLOG(ERROR) << "Device proc addresses have not been set up.";
     return;
   }
 
@@ -105,10 +113,18 @@ bool ShellTestPlatformViewVulkan::OffScreenSurface::CreateSkiaGrContext() {
     return false;
   }
 
-  sk_sp<GrContext> context = GrContext::MakeVulkan(backend_context);
+  GrContextOptions options;
+  if (PersistentCache::cache_sksl()) {
+    options.fShaderCacheStrategy = GrContextOptions::ShaderCacheStrategy::kSkSL;
+  }
+  PersistentCache::MarkStrategySet();
+  options.fPersistentCache = PersistentCache::GetCacheForProcess();
+
+  sk_sp<GrDirectContext> context =
+      GrDirectContext::MakeVulkan(backend_context, options);
 
   if (context == nullptr) {
-    FML_DLOG(ERROR) << "Failed to create GrContext";
+    FML_DLOG(ERROR) << "Failed to create GrDirectContext";
     return false;
   }
 
@@ -171,7 +187,7 @@ ShellTestPlatformViewVulkan::OffScreenSurface::AcquireFrame(
                                         std::move(callback));
 }
 
-GrContext* ShellTestPlatformViewVulkan::OffScreenSurface::GetContext() {
+GrDirectContext* ShellTestPlatformViewVulkan::OffScreenSurface::GetContext() {
   return context_.get();
 }
 
@@ -180,11 +196,6 @@ SkMatrix ShellTestPlatformViewVulkan::OffScreenSurface::GetRootTransformation()
   SkMatrix matrix;
   matrix.reset();
   return matrix;
-}
-
-flutter::ExternalViewEmbedder*
-ShellTestPlatformViewVulkan::OffScreenSurface::GetExternalViewEmbedder() {
-  return shell_test_external_view_embedder_.get();
 }
 
 }  // namespace testing

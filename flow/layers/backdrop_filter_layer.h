@@ -6,14 +6,19 @@
 #define FLUTTER_FLOW_LAYERS_BACKDROP_FILTER_LAYER_H_
 
 #include "flutter/flow/layers/container_layer.h"
-
 #include "third_party/skia/include/core/SkImageFilter.h"
 
 namespace flutter {
 
 class BackdropFilterLayer : public ContainerLayer {
  public:
-  BackdropFilterLayer(sk_sp<SkImageFilter> filter);
+  BackdropFilterLayer(sk_sp<SkImageFilter> filter, SkBlendMode blend_mode);
+
+#ifdef FLUTTER_ENABLE_DIFF_CONTEXT
+
+  void Diff(DiffContext* context, const Layer* old_layer) override;
+
+#endif  // FLUTTER_ENABLE_DIFF_CONTEXT
 
   void Preroll(PrerollContext* context, const SkMatrix& matrix) override;
 
@@ -21,6 +26,7 @@ class BackdropFilterLayer : public ContainerLayer {
 
  private:
   sk_sp<SkImageFilter> filter_;
+  SkBlendMode blend_mode_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(BackdropFilterLayer);
 };

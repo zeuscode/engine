@@ -4,18 +4,24 @@
 
 #define FML_USED_ON_EMBEDDER
 
+#include "flutter/fml/message_loop_task_queues.h"
+
+#include <algorithm>
+#include <cstdlib>
 #include <thread>
 
-#include "flutter/fml/message_loop_task_queues.h"
 #include "flutter/fml/synchronization/count_down_latch.h"
 #include "flutter/fml/synchronization/waitable_event.h"
 #include "gtest/gtest.h"
+
+namespace fml {
+namespace testing {
 
 class TestWakeable : public fml::Wakeable {
  public:
   using WakeUpCall = std::function<void(const fml::TimePoint)>;
 
-  TestWakeable(WakeUpCall call) : wake_up_call_(call) {}
+  explicit TestWakeable(WakeUpCall call) : wake_up_call_(call) {}
 
   void WakeUp(fml::TimePoint time_point) override { wake_up_call_(time_point); }
 
@@ -69,12 +75,13 @@ TEST(MessageLoopTaskQueue, PreserveTaskOrdering) {
   task_queue->RegisterTask(
       queue_id, [&test_val]() { test_val = 2; }, fml::TimePoint::Now());
 
-  std::vector<fml::closure> invocations;
-  task_queue->GetTasksToRunNow(queue_id, fml::FlushType::kAll, invocations);
-
+  const auto now = fml::TimePoint::Now();
   int expected_value = 1;
-
-  for (auto& invocation : invocations) {
+  for (;;) {
+    fml::closure invocation = task_queue->GetNextTaskToRun(queue_id, now);
+    if (!invocation) {
+      break;
+    }
     invocation();
     ASSERT_TRUE(test_val == expected_value);
     expected_value++;
@@ -173,61 +180,117 @@ TEST(MessageLoopTaskQueue, NotifyObserversWhileCreatingQueues) {
   before_second_observer.Signal();
   notify_observers.join();
 }
-// TODO(chunhtai): This unit-test is flaky and sometimes fails asynchronizely
-// after the test has finished.
-// https://github.com/flutter/flutter/issues/43858
-TEST(MessageLoopTaskQueue, DISABLED_ConcurrentQueueAndTaskCreatingCounts) {
+
+TEST(MessageLoopTaskQueue, QueueDoNotOwnItself) {
+  auto task_queue = fml::MessageLoopTaskQueues::GetInstance();
+  auto queue_id = task_queue->CreateTaskQueue();
+  ASSERT_FALSE(task_queue->Owns(queue_id, queue_id));
+}
+
+TEST(MessageLoopTaskQueue, QueueDoNotOwnUnmergedTaskQueueId) {
+  auto task_queue = fml::MessageLoopTaskQueues::GetInstance();
+  ASSERT_FALSE(task_queue->Owns(task_queue->CreateTaskQueue(), _kUnmerged));
+  ASSERT_FALSE(task_queue->Owns(_kUnmerged, task_queue->CreateTaskQueue()));
+  ASSERT_FALSE(task_queue->Owns(_kUnmerged, _kUnmerged));
+}
+
+//------------------------------------------------------------------------------
+/// Verifies that tasks can be added to task queues concurrently.
+///
+TEST(MessageLoopTaskQueue, ConcurrentQueueAndTaskCreatingCounts) {
   auto task_queues = fml::MessageLoopTaskQueues::GetInstance();
-  const int base_queue_id = task_queues->CreateTaskQueue();
 
-  const int num_queues = 100;
-  std::atomic_bool created[num_queues * 3];
-  std::atomic_int num_tasks[num_queues * 3];
-  std::mutex task_count_mutex[num_queues * 3];
-  std::atomic_int done = 0;
+  // kThreadCount threads post kThreadTaskCount tasks each to kTaskQueuesCount
+  // task queues. Each thread picks a task queue randomly for each task.
+  constexpr size_t kThreadCount = 4;
+  constexpr size_t kTaskQueuesCount = 2;
+  constexpr size_t kThreadTaskCount = 500;
 
-  for (int i = 0; i < num_queues * 3; i++) {
-    num_tasks[i] = 0;
-    created[i] = false;
+  std::vector<TaskQueueId> task_queue_ids;
+  for (size_t i = 0; i < kTaskQueuesCount; ++i) {
+    task_queue_ids.emplace_back(task_queues->CreateTaskQueue());
   }
 
-  auto creation_func = [&] {
-    for (int i = 0; i < num_queues; i++) {
-      fml::TaskQueueId queue_id = task_queues->CreateTaskQueue();
-      int limit = queue_id - base_queue_id;
-      created[limit] = true;
+  ASSERT_EQ(task_queue_ids.size(), kTaskQueuesCount);
 
-      for (int cur_q = 1; cur_q < limit; cur_q++) {
-        if (created[cur_q]) {
-          std::scoped_lock counter(task_count_mutex[cur_q]);
-          int cur_num_tasks = rand() % 10;
-          for (int k = 0; k < cur_num_tasks; k++) {
-            task_queues->RegisterTask(
-                fml::TaskQueueId(base_queue_id + cur_q), [] {},
-                fml::TimePoint::Now());
-          }
-          num_tasks[cur_q] += cur_num_tasks;
-        }
-      }
+  fml::CountDownLatch tasks_posted_latch(kThreadCount);
+
+  auto thread_main = [&]() {
+    for (size_t i = 0; i < kThreadTaskCount; i++) {
+      const auto current_task_queue_id =
+          task_queue_ids[std::rand() % kTaskQueuesCount];
+      const auto empty_task = []() {};
+      // The timepoint doesn't matter as the queue is never going to be drained.
+      const auto task_timepoint = fml::TimePoint::Now();
+
+      task_queues->RegisterTask(current_task_queue_id, empty_task,
+                                task_timepoint);
     }
-    done++;
+
+    tasks_posted_latch.CountDown();
   };
 
-  std::thread creation_1(creation_func);
-  std::thread creation_2(creation_func);
+  std::vector<std::thread> threads;
 
-  while (done < 2) {
-    for (int i = 0; i < num_queues * 3; i++) {
-      if (created[i]) {
-        std::scoped_lock counter(task_count_mutex[i]);
-        int num_pending = task_queues->GetNumPendingTasks(
-            fml::TaskQueueId(base_queue_id + i));
-        int num_added = num_tasks[i];
-        ASSERT_EQ(num_pending, num_added);
-      }
-    }
+  for (size_t i = 0; i < kThreadCount; i++) {
+    threads.emplace_back(std::thread{thread_main});
   }
 
-  creation_1.join();
-  creation_2.join();
+  ASSERT_EQ(threads.size(), kThreadCount);
+
+  for (size_t i = 0; i < kThreadCount; i++) {
+    threads[i].join();
+  }
+
+  // All tasks have been posted by now. Check that they are all pending.
+
+  size_t pending_tasks = 0u;
+  std::for_each(task_queue_ids.begin(), task_queue_ids.end(),
+                [&](const auto& queue) {
+                  pending_tasks += task_queues->GetNumPendingTasks(queue);
+                });
+
+  ASSERT_EQ(pending_tasks, kThreadCount * kThreadTaskCount);
 }
+
+TEST(MessageLoopTaskQueue, RegisterTaskWakesUpOwnerQueue) {
+  auto task_queue = fml::MessageLoopTaskQueues::GetInstance();
+  auto platform_queue = task_queue->CreateTaskQueue();
+  auto raster_queue = task_queue->CreateTaskQueue();
+
+  std::vector<fml::TimePoint> wakes;
+
+  task_queue->SetWakeable(platform_queue,
+                          new TestWakeable([&wakes](fml::TimePoint wake_time) {
+                            wakes.push_back(wake_time);
+                          }));
+
+  task_queue->SetWakeable(raster_queue,
+                          new TestWakeable([](fml::TimePoint wake_time) {
+                            // The raster queue is owned by the platform queue.
+                            ASSERT_FALSE(true);
+                          }));
+
+  auto time1 = fml::TimePoint::Now() + fml::TimeDelta::FromMilliseconds(1);
+  auto time2 = fml::TimePoint::Now() + fml::TimeDelta::FromMilliseconds(2);
+
+  ASSERT_EQ(0UL, wakes.size());
+
+  task_queue->RegisterTask(
+      platform_queue, []() {}, time1);
+
+  ASSERT_EQ(1UL, wakes.size());
+  ASSERT_EQ(time1, wakes[0]);
+
+  task_queue->Merge(platform_queue, raster_queue);
+
+  task_queue->RegisterTask(
+      raster_queue, []() {}, time2);
+
+  ASSERT_EQ(3UL, wakes.size());
+  ASSERT_EQ(time1, wakes[1]);
+  ASSERT_EQ(time1, wakes[2]);
+}
+
+}  // namespace testing
+}  // namespace fml

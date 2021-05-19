@@ -32,20 +32,46 @@ List<int> _to64(num value) {
 class PlatformViewScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier.
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
+  }
+}
 
-    finishBuilderByAddingPlatformViewAndPicture(builder, 0);
+/// A simple platform view.
+class NonFullScreenFlutterViewPlatformViewScenario extends Scenario
+    with _BasePlatformViewScenarioMixin {
+  /// Creates the PlatformView scenario.
+  ///
+  /// The [dispatcher] parameter must not be null.
+  NonFullScreenFlutterViewPlatformViewScenario(
+      PlatformDispatcher dispatcher, String text,
+      {this.id})
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
+  }
+
+  /// The platform view identifier.
+  final int id;
+
+  @override
+  void onBeginFrame(Duration duration) {
+    final SceneBuilder builder = SceneBuilder();
+
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 
@@ -53,22 +79,23 @@ class PlatformViewScenario extends Scenario with _BasePlatformViewScenarioMixin 
 class PlatformViewNoOverlayIntersectionScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewNoOverlayIntersectionScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewNoOverlayIntersectionScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier.
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
     finishBuilderByAddingPlatformViewAndPicture(
       builder,
-      0,
+      id,
       overlayOffset: const Offset(150, 350),
     );
   }
@@ -78,22 +105,23 @@ class PlatformViewNoOverlayIntersectionScenario extends Scenario with _BasePlatf
 class PlatformViewPartialIntersectionScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewPartialIntersectionScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewPartialIntersectionScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier .
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
     finishBuilderByAddingPlatformViewAndPicture(
       builder,
-      0,
+      id,
       overlayOffset: const Offset(150, 250),
     );
   }
@@ -103,20 +131,21 @@ class PlatformViewPartialIntersectionScenario extends Scenario with _BasePlatfor
 class PlatformViewTwoIntersectingOverlaysScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewTwoIntersectingOverlaysScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewTwoIntersectingOverlaysScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier.
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
-    _addPlatformViewtoScene(builder, 0, 500, 500);
+    _addPlatformViewToScene(builder, id, 500, 500);
     final PictureRecorder recorder = PictureRecorder();
     final Canvas canvas = Canvas(recorder);
     canvas.drawCircle(
@@ -141,20 +170,21 @@ class PlatformViewTwoIntersectingOverlaysScenario extends Scenario with _BasePla
 class PlatformViewOneOverlayTwoIntersectingOverlaysScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewOneOverlayTwoIntersectingOverlaysScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewOneOverlayTwoIntersectingOverlaysScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier.
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
-    _addPlatformViewtoScene(builder, 0, 500, 500);
+    _addPlatformViewToScene(builder, id, 500, 500);
     final PictureRecorder recorder = PictureRecorder();
     final Canvas canvas = Canvas(recorder);
     canvas.drawCircle(
@@ -184,24 +214,29 @@ class PlatformViewOneOverlayTwoIntersectingOverlaysScenario extends Scenario wit
 class MultiPlatformViewWithoutOverlaysScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  MultiPlatformViewWithoutOverlaysScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  MultiPlatformViewWithoutOverlaysScenario(PlatformDispatcher dispatcher, String text, { this.firstId, this.secondId })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, firstId);
+    createPlatformView(dispatcher, text, secondId);
   }
+
+  /// The platform view identifier to use for the first platform view.
+  final int firstId;
+
+  /// The platform view identifier to use for the second platform view.
+  final int secondId;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
     builder.pushOffset(0, 600);
-    _addPlatformViewtoScene(builder, 0, 500, 500);
+    _addPlatformViewToScene(builder, firstId, 500, 500);
     builder.pop();
 
-    _addPlatformViewtoScene(builder, 1, 500, 500);
+    _addPlatformViewToScene(builder, secondId, 500, 500);
 
     final PictureRecorder recorder = PictureRecorder();
     final Canvas canvas = Canvas(recorder);
@@ -223,20 +258,21 @@ class MultiPlatformViewWithoutOverlaysScenario extends Scenario with _BasePlatfo
 class PlatformViewMaxOverlaysScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewMaxOverlaysScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewMaxOverlaysScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier.
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
-    _addPlatformViewtoScene(builder, 0, 500, 500);
+    _addPlatformViewToScene(builder, id, 500, 500);
     final PictureRecorder recorder = PictureRecorder();
     final Canvas canvas = Canvas(recorder);
     canvas.drawCircle(
@@ -271,12 +307,12 @@ class PlatformViewMaxOverlaysScenario extends Scenario with _BasePlatformViewSce
 class MultiPlatformViewScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  MultiPlatformViewScenario(Window window, {this.firstId, this.secondId})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, 'platform view 1', firstId);
-    createPlatformView(window, 'platform view 2', secondId);
+  /// The [dispatcher] parameter must not be null.
+  MultiPlatformViewScenario(PlatformDispatcher dispatcher, {this.firstId, this.secondId})
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, 'platform view 1', firstId);
+    createPlatformView(dispatcher, 'platform view 2', secondId);
   }
 
   /// The platform view identifier to use for the first platform view.
@@ -289,10 +325,8 @@ class MultiPlatformViewScenario extends Scenario with _BasePlatformViewScenarioM
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
     builder.pushOffset(0, 600);
-    _addPlatformViewtoScene(builder, firstId, 500, 500);
+    _addPlatformViewToScene(builder, firstId, 500, 500);
     builder.pop();
 
     finishBuilderByAddingPlatformViewAndPicture(builder, secondId);
@@ -307,13 +341,13 @@ class MultiPlatformViewScenario extends Scenario with _BasePlatformViewScenarioM
 class MultiPlatformViewBackgroundForegroundScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  MultiPlatformViewBackgroundForegroundScenario(Window window, {this.firstId, this.secondId})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, 'platform view 1', firstId);
-    createPlatformView(window, 'platform view 2', secondId);
+  /// The [dispatcher] parameter must not be null.
+  MultiPlatformViewBackgroundForegroundScenario(PlatformDispatcher dispatcher, {this.firstId, this.secondId})
+      : assert(dispatcher != null),
+        super(dispatcher) {
     _nextFrame = _firstFrame;
+    createPlatformView(dispatcher, 'platform view 1', firstId);
+    createPlatformView(dispatcher, 'platform view 2', secondId);
   }
 
   /// The platform view identifier to use for the first platform view.
@@ -332,13 +366,13 @@ class MultiPlatformViewBackgroundForegroundScenario extends Scenario with _BaseP
   void _firstFrame() {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
-    builder.pushOffset(0, 600);
-    _addPlatformViewtoScene(builder, firstId, 500, 500);
+    builder.pushOffset(50, 600);
+    _addPlatformViewToScene(builder, firstId, 500, 500);
     builder.pop();
 
-    _addPlatformViewtoScene(builder, secondId, 500, 500);
+    builder.pushOffset(50, 0);
+    _addPlatformViewToScene(builder, secondId, 500, 500);
+    builder.pop();
 
     final PictureRecorder recorder = PictureRecorder();
     final Canvas canvas = Canvas(recorder);
@@ -349,7 +383,6 @@ class MultiPlatformViewBackgroundForegroundScenario extends Scenario with _BaseP
     final Picture picture = recorder.endRecording();
     builder.addPicture(const Offset(0, 0), picture);
 
-    builder.pop();
     final Scene scene = builder.build();
     window.render(scene);
     scene.dispose();
@@ -358,13 +391,12 @@ class MultiPlatformViewBackgroundForegroundScenario extends Scenario with _BaseP
   void _secondFrame() {
     final SceneBuilder builder = SceneBuilder();
 
-    builder.pushOffset(0, 0);
-
     builder.pushOffset(0, 600);
-    _addPlatformViewtoScene(builder, firstId, 500, 500);
+    _addPlatformViewToScene(builder, firstId, 500, 500);
     builder.pop();
 
-    _addPlatformViewtoScene(builder, secondId, 500, 500);
+    _addPlatformViewToScene(builder, secondId, 500, 500);
+
     final Scene scene = builder.build();
     window.render(scene);
     scene.dispose();
@@ -394,32 +426,34 @@ class MultiPlatformViewBackgroundForegroundScenario extends Scenario with _BaseP
 /// Platform view with clip rect.
 class PlatformViewClipRectScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Constructs a platform view with clip rect scenario.
-  PlatformViewClipRectScenario(Window window, String text, {int id = 0})
-      : assert(window != null),
-        super(window) {
-    createPlatformView(window, text, id);
+  PlatformViewClipRectScenario(PlatformDispatcher dispatcher, String text, { this.id })
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
   }
+
+  /// The platform view identifier.
+  final int id;
 
   @override
   void onBeginFrame(Duration duration) {
-    final SceneBuilder builder = SceneBuilder();
-    builder.pushOffset(0, 0);
-    builder.pushClipRect(const Rect.fromLTRB(100, 100, 400, 400));
-    finishBuilderByAddingPlatformViewAndPicture(builder, 1);
+    final SceneBuilder builder =
+      SceneBuilder()
+      ..pushClipRect(const Rect.fromLTRB(100, 100, 400, 400));
+
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 
 /// Platform view with clip rrect.
 class PlatformViewClipRRectScenario extends PlatformViewScenario {
   /// Constructs a platform view with clip rrect scenario.
-  PlatformViewClipRRectScenario(Window window, String text, {int id = 0})
-      : super(window, text, id: id);
+  PlatformViewClipRRectScenario(PlatformDispatcher dispatcher, String text, { int id = 0 })
+      : super(dispatcher, text, id: id);
 
   @override
   void onBeginFrame(Duration duration) {
     final SceneBuilder builder = SceneBuilder();
-
-    builder.pushOffset(0, 0);
     builder.pushClipRRect(
       RRect.fromLTRBAndCorners(
         100,
@@ -431,70 +465,59 @@ class PlatformViewClipRRectScenario extends PlatformViewScenario {
         bottomLeft: const Radius.circular(50),
       ),
     );
-    finishBuilderByAddingPlatformViewAndPicture(builder, 2);
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 
 /// Platform view with clip path.
 class PlatformViewClipPathScenario extends PlatformViewScenario {
   /// Constructs a platform view with clip rrect scenario.
-  PlatformViewClipPathScenario(Window window, String text, {int id = 0})
-      : super(window, text, id: id);
+  PlatformViewClipPathScenario(PlatformDispatcher dispatcher, String text, { int id = 0 })
+      : super(dispatcher, text, id: id);
 
   @override
   void onBeginFrame(Duration duration) {
-    final SceneBuilder builder = SceneBuilder();
-
-    builder.pushOffset(0, 0);
-
     final Path path = Path()
       ..moveTo(100, 100)
       ..quadraticBezierTo(50, 250, 100, 400)
       ..lineTo(350, 400)
       ..cubicTo(400, 300, 300, 200, 350, 100)
       ..close();
-    builder.pushClipPath(path);
 
-    finishBuilderByAddingPlatformViewAndPicture(builder, 3);
+    final SceneBuilder builder = SceneBuilder()..pushClipPath(path);
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 
 /// Platform view with transform.
 class PlatformViewTransformScenario extends PlatformViewScenario {
   /// Constructs a platform view with transform scenario.
-  PlatformViewTransformScenario(Window window, String text, {int id = 0})
-      : super(window, text, id: id);
+  PlatformViewTransformScenario(PlatformDispatcher dispatcher, String text, { int id = 0 })
+      : super(dispatcher, text, id: id);
 
   @override
   void onBeginFrame(Duration duration) {
-    final SceneBuilder builder = SceneBuilder();
-
-    builder.pushOffset(0, 0);
     final Matrix4 matrix4 = Matrix4.identity()
       ..rotateZ(1)
       ..scale(0.5, 0.5, 1.0)
       ..translate(1000.0, 100.0, 0.0);
 
-    builder.pushTransform(matrix4.storage);
+    final SceneBuilder builder = SceneBuilder()..pushTransform(matrix4.storage);
 
-    finishBuilderByAddingPlatformViewAndPicture(builder, 4);
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 
 /// Platform view with opacity.
 class PlatformViewOpacityScenario extends PlatformViewScenario {
   /// Constructs a platform view with transform scenario.
-  PlatformViewOpacityScenario(Window window, String text, {int id = 0})
-      : super(window, text, id: id);
+  PlatformViewOpacityScenario(PlatformDispatcher dispatcher, String text, { int id = 0 })
+      : super(dispatcher, text, id: id);
 
   @override
   void onBeginFrame(Duration duration) {
-    final SceneBuilder builder = SceneBuilder();
-
-    builder.pushOffset(0, 0);
-    builder.pushOpacity(150);
-
-    finishBuilderByAddingPlatformViewAndPicture(builder, 5);
+    final SceneBuilder builder = SceneBuilder()..pushOpacity(150);
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 
@@ -504,27 +527,39 @@ class PlatformViewForTouchIOSScenario extends Scenario
 
   int _viewId;
   bool _accept;
+
+  VoidCallback _nextFrame;
   /// Creates the PlatformView scenario.
   ///
-  /// The [window] parameter must not be null.
-  PlatformViewForTouchIOSScenario(Window window, String text, {int id = 0, bool accept, bool rejectUntilTouchesEnded = false})
-      : assert(window != null),
+  /// The [dispatcher] parameter must not be null.
+  PlatformViewForTouchIOSScenario(PlatformDispatcher dispatcher, String text, {int id = 0, bool accept, bool rejectUntilTouchesEnded = false})
+      : assert(dispatcher != null),
        _accept = accept,
       _viewId = id,
-        super(window) {
+        super(dispatcher) {
     if (rejectUntilTouchesEnded) {
-      createPlatformView(window, text, id, viewType: 'scenarios/textPlatformView_blockPolicyUntilTouchesEnded');
+      createPlatformView(dispatcher, text, id, viewType: 'scenarios/textPlatformView_blockPolicyUntilTouchesEnded');
     } else {
-      createPlatformView(window, text, id);
+      createPlatformView(dispatcher, text, id);
     }
+    _nextFrame = _firstFrame;
   }
 
   @override
   void onBeginFrame(Duration duration) {
-    final SceneBuilder builder = SceneBuilder();
+    _nextFrame();
+  }
 
-    builder.pushOffset(0, 0);
-    finishBuilderByAddingPlatformViewAndPicture(builder, 11);
+  @override
+  void onDrawFrame() {
+    // Some iOS gesture recognizers bugs are introduced in the second frame (with a different platform view rect) after laying out the platform view.
+    // So in this test, we load 2 frames to ensure that we cover those cases.
+    // See https://github.com/flutter/flutter/issues/66044
+    if (_nextFrame == _firstFrame) {
+      _nextFrame = _secondFrame;
+      window.scheduleFrame();
+    }
+    super.onDrawFrame();
   }
 
   @override
@@ -557,22 +592,55 @@ class PlatformViewForTouchIOSScenario extends Scenario
     }
 
   }
+
+  void _firstFrame() {
+    final SceneBuilder builder = SceneBuilder();
+    finishBuilderByAddingPlatformViewAndPicture(builder, _viewId);
+  }
+
+  void _secondFrame() {
+    final SceneBuilder builder = SceneBuilder()..pushOffset(5, 5);
+    finishBuilderByAddingPlatformViewAndPicture(builder, _viewId);
+  }
+}
+
+/// A simple platform view for testing platform view with a continuous texture layer.
+/// For example, it simulates a video being played.
+class PlatformViewWithContinuousTexture extends PlatformViewScenario {
+  /// Constructs a platform view with continuous texture layer.
+  PlatformViewWithContinuousTexture(PlatformDispatcher dispatcher, String text, { int id = 0 })
+      : super(dispatcher, text, id: id);
+
+  @override
+  void onBeginFrame(Duration duration) {
+    final SceneBuilder builder = SceneBuilder();
+
+    builder.addTexture(0, width: 300, height: 300, offset: const Offset(200, 200));
+
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
+  }
 }
 
 mixin _BasePlatformViewScenarioMixin on Scenario {
   int _textureId;
+
+  bool get usesAndroidHybridComposition {
+    return (scenarioParams['use_android_view'] as bool) == true;
+  }
 
   /// Construct the platform view related scenario
   ///
   /// It prepare a TextPlatformView so it can be added to the SceneBuilder in `onBeginFrame`.
   /// Call this method in the constructor of the platform view related scenarios
   /// to perform necessary set up.
-  void createPlatformView(Window window, String text, int id, {String viewType = 'scenarios/textPlatformView'}) {
+  void createPlatformView(PlatformDispatcher dispatcher, String text, int id, {String viewType = 'scenarios/textPlatformView'}) {
+    const int _valueTrue = 1;
     const int _valueInt32 = 3;
     const int _valueFloat64 = 6;
     const int _valueString = 7;
     const int _valueUint8List = 8;
     const int _valueMap = 13;
+
     final Uint8List message = Uint8List.fromList(<int>[
       _valueString,
       'create'.length, // this won't work if we use multi-byte characters.
@@ -580,8 +648,10 @@ mixin _BasePlatformViewScenarioMixin on Scenario {
       _valueMap,
       if (Platform.isIOS)
         3, // 3 entries in map for iOS.
-      if (Platform.isAndroid)
-        6, // 6 entries in map for Android.
+      if (Platform.isAndroid && !usesAndroidHybridComposition)
+        6, // 6 entries in map for virtual displays on Android.
+      if (Platform.isAndroid && usesAndroidHybridComposition)
+        5, // 5 entries in map for Android views.
       _valueString,
       'id'.length,
       ...utf8.encode('id'),
@@ -593,7 +663,7 @@ mixin _BasePlatformViewScenarioMixin on Scenario {
       _valueString,
       viewType.length,
       ...utf8.encode(viewType),
-      if (Platform.isAndroid) ...<int>[
+      if (Platform.isAndroid && !usesAndroidHybridComposition) ...<int>[
         _valueString,
         'width'.length,
         ...utf8.encode('width'),
@@ -610,6 +680,17 @@ mixin _BasePlatformViewScenarioMixin on Scenario {
         _valueInt32,
         ..._to32(0), // LTR
       ],
+      if (Platform.isAndroid && usesAndroidHybridComposition) ...<int>[
+        _valueString,
+        'hybrid'.length,
+        ...utf8.encode('hybrid'),
+        _valueTrue,
+        _valueString,
+        'direction'.length,
+        ...utf8.encode('direction'),
+        _valueInt32,
+        ..._to32(0), // LTR
+      ],
       _valueString,
       'params'.length,
       ...utf8.encode('params'),
@@ -618,11 +699,11 @@ mixin _BasePlatformViewScenarioMixin on Scenario {
       ...utf8.encode(text),
     ]);
 
-    window.sendPlatformMessage(
+    dispatcher.sendPlatformMessage(
       'flutter/platform_views',
       message.buffer.asByteData(),
       (ByteData response) {
-        if (response != null && Platform.isAndroid) {
+        if (response != null && Platform.isAndroid && !usesAndroidHybridComposition) {
           // Envelope.
           _textureId = response.getUint8(0);
         }
@@ -630,22 +711,19 @@ mixin _BasePlatformViewScenarioMixin on Scenario {
     );
   }
 
-  void _addPlatformViewtoScene(
+  void _addPlatformViewToScene(
     SceneBuilder sceneBuilder,
     int viewId,
     double width,
-    double height, {
-    Offset overlayOffset,
-  }) {
-    overlayOffset ??= const Offset(50, 50);
+    double height,
+  ) {
     if (Platform.isIOS) {
-      sceneBuilder.addPlatformView(viewId, offset: overlayOffset, width: width, height: height);
+      sceneBuilder.addPlatformView(viewId, width: width, height: height);
     } else if (Platform.isAndroid) {
-      if (scenarioParams['use_android_view'] as bool) {
-        // Hybrid composition.
-        sceneBuilder.addPlatformView(viewId, offset: overlayOffset, width: width, height: height);
+      if (usesAndroidHybridComposition) {
+        sceneBuilder.addPlatformView(viewId, width: width, height: height);
       } else if (_textureId != null) {
-        sceneBuilder.addTexture(_textureId, offset: overlayOffset, width: width, height: height);
+        sceneBuilder.addTexture(_textureId, width: width, height: height);
       }
     } else {
       throw UnsupportedError('Platform ${Platform.operatingSystem} is not supported');
@@ -659,12 +737,11 @@ mixin _BasePlatformViewScenarioMixin on Scenario {
     Offset overlayOffset,
   }) {
     overlayOffset ??= const Offset(50, 50);
-    _addPlatformViewtoScene(
+    _addPlatformViewToScene(
       sceneBuilder,
       viewId,
       500,
       500,
-      overlayOffset: overlayOffset,
     );
     final PictureRecorder recorder = PictureRecorder();
     final Canvas canvas = Canvas(recorder);

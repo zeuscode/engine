@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 part of engine;
 
 /// Defines canvas interface common across canvases that the [SceneBuilder]
@@ -33,7 +32,7 @@ abstract class EngineCanvas {
 
   void transform(Float32List matrix4);
 
-  void clipRect(ui.Rect rect);
+  void clipRect(ui.Rect rect, ui.ClipOp clipOp);
 
   void clipRRect(ui.RRect rrect);
 
@@ -95,19 +94,19 @@ Matrix4 transformWithOffset(Matrix4 transform, ui.Offset offset) {
 
 class _SaveStackEntry {
   _SaveStackEntry({
-    @required this.transform,
-    @required this.clipStack,
+    required this.transform,
+    required this.clipStack,
   });
 
   final Matrix4 transform;
-  final List<_SaveClipEntry> clipStack;
+  final List<_SaveClipEntry>? clipStack;
 }
 
 /// Tagged union of clipping parameters used for canvas.
 class _SaveClipEntry {
-  final ui.Rect rect;
-  final ui.RRect rrect;
-  final ui.Path path;
+  final ui.Rect? rect;
+  final ui.RRect? rrect;
+  final ui.Path? path;
   final Matrix4 currentTransform;
   _SaveClipEntry.rect(this.rect, this.currentTransform)
       : rrect = null,
@@ -129,7 +128,7 @@ mixin SaveStackTracking on EngineCanvas {
 
   /// The stack that maintains clipping operations used when text is painted
   /// onto bitmap canvas but is composited as separate element.
-  List<_SaveClipEntry> _clipStack;
+  List<_SaveClipEntry>? _clipStack;
 
   /// Returns whether there are active clipping regions on the canvas.
   bool get isClipped => _clipStack != null;
@@ -157,7 +156,7 @@ mixin SaveStackTracking on EngineCanvas {
     _saveStack.add(_SaveStackEntry(
       transform: _currentTransform.clone(),
       clipStack:
-          _clipStack == null ? null : List<_SaveClipEntry>.from(_clipStack),
+          _clipStack == null ? null : List<_SaveClipEntry>.from(_clipStack!),
     ));
   }
 
@@ -222,9 +221,9 @@ mixin SaveStackTracking on EngineCanvas {
   ///
   /// Classes that override this method must call `super.clipRect()`.
   @override
-  void clipRect(ui.Rect rect) {
+  void clipRect(ui.Rect rect, ui.ClipOp op) {
     _clipStack ??= <_SaveClipEntry>[];
-    _clipStack.add(_SaveClipEntry.rect(rect, _currentTransform.clone()));
+    _clipStack!.add(_SaveClipEntry.rect(rect, _currentTransform.clone()));
   }
 
   /// Adds a round rectangle to clipping stack.
@@ -233,7 +232,7 @@ mixin SaveStackTracking on EngineCanvas {
   @override
   void clipRRect(ui.RRect rrect) {
     _clipStack ??= <_SaveClipEntry>[];
-    _clipStack.add(_SaveClipEntry.rrect(rrect, _currentTransform.clone()));
+    _clipStack!.add(_SaveClipEntry.rrect(rrect, _currentTransform.clone()));
   }
 
   /// Adds a path to clipping stack.
@@ -242,27 +241,18 @@ mixin SaveStackTracking on EngineCanvas {
   @override
   void clipPath(ui.Path path) {
     _clipStack ??= <_SaveClipEntry>[];
-    _clipStack.add(_SaveClipEntry.path(path, _currentTransform.clone()));
+    _clipStack!.add(_SaveClipEntry.path(path, _currentTransform.clone()));
   }
 }
 
 html.Element _drawParagraphElement(
   EngineParagraph paragraph,
   ui.Offset offset, {
-  Matrix4 transform,
+  Matrix4? transform,
 }) {
-  assert(paragraph._isLaidOut);
+  assert(paragraph.isLaidOut);
 
-  final html.Element paragraphElement = paragraph._paragraphElement.clone(true);
-
-  final html.CssStyleDeclaration paragraphStyle = paragraphElement.style;
-  paragraphStyle
-    ..position = 'absolute'
-    ..whiteSpace = 'pre-wrap'
-    ..overflowWrap = 'break-word'
-    ..overflow = 'hidden'
-    ..height = '${paragraph.height}px'
-    ..width = '${paragraph.width}px';
+  final html.HtmlElement paragraphElement = paragraph.toDomElement();
 
   if (transform != null) {
     setElementTransform(
@@ -270,15 +260,129 @@ html.Element _drawParagraphElement(
       transformWithOffset(transform, offset).storage,
     );
   }
-
-  final ParagraphGeometricStyle style = paragraph._geometricStyle;
-
-  // TODO(flutter_web): https://github.com/flutter/flutter/issues/33223
-  if (style.ellipsis != null &&
-      (style.maxLines == null || style.maxLines == 1)) {
-    paragraphStyle
-      ..whiteSpace = 'pre'
-      ..textOverflow = 'ellipsis';
-  }
   return paragraphElement;
+}
+
+class _SaveElementStackEntry {
+  _SaveElementStackEntry({
+    required this.savedElement,
+    required this.transform,
+  });
+
+  final html.Element savedElement;
+  final Matrix4 transform;
+}
+
+/// Provides save stack tracking functionality to implementations of
+/// [EngineCanvas].
+mixin SaveElementStackTracking on EngineCanvas {
+  static final Vector3 _unitZ = Vector3(0.0, 0.0, 1.0);
+
+  final List<_SaveElementStackEntry> _saveStack = <_SaveElementStackEntry>[];
+
+  /// The element at the top of the element stack, or [rootElement] if the stack
+  /// is empty.
+  html.Element get currentElement =>
+      _elementStack.isEmpty ? rootElement : _elementStack.last;
+
+  /// The stack that maintains the DOM elements used to express certain paint
+  /// operations, such as clips.
+  final List<html.Element> _elementStack = <html.Element>[];
+
+  /// Pushes the [element] onto the element stack for the purposes of applying
+  /// a paint effect using a DOM element, e.g. for clipping.
+  ///
+  /// The [restore] method automatically pops the element off the stack.
+  void pushElement(html.Element element) {
+    _elementStack.add(element);
+  }
+
+  /// Empties the save stack and the element stack, and resets the transform
+  /// and clip parameters.
+  ///
+  /// Classes that override this method must call `super.clear()`.
+  @override
+  void clear() {
+    _saveStack.clear();
+    _elementStack.clear();
+    _currentTransform = Matrix4.identity();
+  }
+
+  /// The current transformation matrix.
+  Matrix4 get currentTransform => _currentTransform;
+  Matrix4 _currentTransform = Matrix4.identity();
+
+  /// Saves current clip and transform on the save stack.
+  ///
+  /// Classes that override this method must call `super.save()`.
+  @override
+  void save() {
+    _saveStack.add(_SaveElementStackEntry(
+      savedElement: currentElement,
+      transform: _currentTransform.clone(),
+    ));
+  }
+
+  /// Restores current clip and transform from the save stack.
+  ///
+  /// Classes that override this method must call `super.restore()`.
+  @override
+  void restore() {
+    if (_saveStack.isEmpty) {
+      return;
+    }
+    final _SaveElementStackEntry entry = _saveStack.removeLast();
+    _currentTransform = entry.transform;
+
+    // Pop out of any clips.
+    while (currentElement != entry.savedElement) {
+      _elementStack.removeLast();
+    }
+  }
+
+  /// Multiplies the [currentTransform] matrix by a translation.
+  ///
+  /// Classes that override this method must call `super.translate()`.
+  @override
+  void translate(double dx, double dy) {
+    _currentTransform.translate(dx, dy);
+  }
+
+  /// Scales the [currentTransform] matrix.
+  ///
+  /// Classes that override this method must call `super.scale()`.
+  @override
+  void scale(double sx, double sy) {
+    _currentTransform.scale(sx, sy);
+  }
+
+  /// Rotates the [currentTransform] matrix.
+  ///
+  /// Classes that override this method must call `super.rotate()`.
+  @override
+  void rotate(double radians) {
+    _currentTransform.rotate(_unitZ, radians);
+  }
+
+  /// Skews the [currentTransform] matrix.
+  ///
+  /// Classes that override this method must call `super.skew()`.
+  @override
+  void skew(double sx, double sy) {
+    // DO NOT USE Matrix4.skew(sx, sy)! It treats sx and sy values as radians,
+    // but in our case they are transform matrix values.
+    final Matrix4 skewMatrix = Matrix4.identity();
+    final Float32List storage = skewMatrix.storage;
+    storage[1] = sy;
+    storage[4] = sx;
+    _currentTransform.multiply(skewMatrix);
+  }
+
+  /// Multiplies the [currentTransform] matrix by another matrix.
+  ///
+  /// Classes that override this method must call `super.transform()`.
+  @override
+  void transform(Float32List matrix4) {
+    _currentTransform.multiply(Matrix4.fromFloat32List(matrix4));
+  }
 }

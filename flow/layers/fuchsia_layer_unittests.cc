@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <deque>
-
-#include "gtest/gtest.h"
-
 #include <fuchsia/ui/scenic/cpp/fidl.h>
 #include <fuchsia/ui/scenic/cpp/fidl_test_base.h>
 #include <lib/async-loop/cpp/loop.h>
@@ -16,14 +12,15 @@
 #include <lib/ui/scenic/cpp/id.h>
 #include <lib/ui/scenic/cpp/view_token_pair.h>
 
+#include <deque>
+
 #include "flutter/flow/layers/child_scene_layer.h"
 #include "flutter/flow/layers/container_layer.h"
 #include "flutter/flow/layers/opacity_layer.h"
 #include "flutter/flow/layers/physical_shape_layer.h"
 #include "flutter/flow/layers/transform_layer.h"
 #include "flutter/flow/view_holder.h"
-#include "flutter/fml/platform/fuchsia/message_loop_fuchsia.h"
-#include "flutter/fml/task_runner.h"
+#include "gtest/gtest.h"
 
 namespace flutter {
 namespace testing {
@@ -238,72 +235,27 @@ class MockSession : public fuchsia::ui::scenic::testing::Session_TestBase {
   fuchsia::ui::scenic::SessionListenerPtr listener_;
 };
 
-class MockSurfaceProducerSurface
-    : public SceneUpdateContext::SurfaceProducerSurface {
+class MockSessionWrapper : public flutter::SessionWrapper {
  public:
-  MockSurfaceProducerSurface(scenic::Session* session, const SkISize& size)
-      : image_(session, 0, 0, {}), size_(size) {}
+  MockSessionWrapper(fuchsia::ui::scenic::SessionPtr session_ptr)
+      : session_(std::move(session_ptr)) {}
+  ~MockSessionWrapper() override = default;
 
-  size_t AdvanceAndGetAge() override { return 0; }
-
-  bool FlushSessionAcquireAndReleaseEvents() override { return false; }
-
-  bool IsValid() const override { return false; }
-
-  SkISize GetSize() const override { return size_; }
-
-  void SignalWritesFinished(
-      const std::function<void(void)>& on_writes_committed) override {}
-
-  scenic::Image* GetImage() override { return &image_; };
-
-  sk_sp<SkSurface> GetSkiaSurface() const override { return nullptr; };
+  scenic::Session* get() override { return &session_; }
+  void Present() override { session_.Flush(); }
 
  private:
-  scenic::Image image_;
-  SkISize size_;
-};
-
-class MockSurfaceProducer : public SceneUpdateContext::SurfaceProducer {
- public:
-  MockSurfaceProducer(scenic::Session* session) : session_(session) {}
-  std::unique_ptr<SceneUpdateContext::SurfaceProducerSurface> ProduceSurface(
-      const SkISize& size,
-      const LayerRasterCacheKey& layer_key,
-      std::unique_ptr<scenic::EntityNode> entity_node) override {
-    return std::make_unique<MockSurfaceProducerSurface>(session_, size);
-  }
-
-  // Query a retained entity node (owned by a retained surface) for retained
-  // rendering.
-  bool HasRetainedNode(const LayerRasterCacheKey& key) const override {
-    return false;
-  }
-
-  scenic::EntityNode* GetRetainedNode(const LayerRasterCacheKey& key) override {
-    return nullptr;
-  }
-
-  void SubmitSurface(std::unique_ptr<SceneUpdateContext::SurfaceProducerSurface>
-                         surface) override {}
-
- private:
-  scenic::Session* session_;
+  scenic::Session session_;
 };
 
 struct TestContext {
-  // Message loop.
-  fml::RefPtr<fml::MessageLoopFuchsia> loop;
-  fml::RefPtr<fml::TaskRunner> task_runner;
-
   // Session.
-  MockSession mock_session;
   fidl::InterfaceRequest<fuchsia::ui::scenic::SessionListener> listener_request;
-  std::unique_ptr<scenic::Session> session;
+  MockSession mock_session;
+  std::unique_ptr<MockSessionWrapper> mock_session_wrapper;
 
   // SceneUpdateContext.
-  std::unique_ptr<MockSurfaceProducer> mock_surface_producer;
-  std::unique_ptr<SceneUpdateContext> scene_update_context;
+  std::shared_ptr<SceneUpdateContext> scene_update_context;
 
   // PrerollContext.
   MutatorsStack unused_stack;
@@ -315,24 +267,18 @@ struct TestContext {
 std::unique_ptr<TestContext> InitTest() {
   std::unique_ptr<TestContext> context = std::make_unique<TestContext>();
 
-  // Init message loop.
-  context->loop = fml::MakeRefCounted<fml::MessageLoopFuchsia>();
-  context->task_runner = fml::MakeRefCounted<fml::TaskRunner>(context->loop);
-
   // Init Session.
   fuchsia::ui::scenic::SessionPtr session_ptr;
   fuchsia::ui::scenic::SessionListenerPtr listener;
   context->listener_request = listener.NewRequest();
   context->mock_session.Bind(session_ptr.NewRequest(), std::move(listener));
-  context->session = std::make_unique<scenic::Session>(std::move(session_ptr));
+  context->mock_session_wrapper =
+      std::make_unique<MockSessionWrapper>(std::move(session_ptr));
 
   // Init SceneUpdateContext.
-  context->mock_surface_producer =
-      std::make_unique<MockSurfaceProducer>(context->session.get());
-  context->scene_update_context = std::make_unique<SceneUpdateContext>(
-      context->session.get(), context->mock_surface_producer.get());
-  context->scene_update_context->set_metrics(
-      fidl::MakeOptional(fuchsia::ui::gfx::Metrics{1.f, 1.f, 1.f}));
+  context->scene_update_context = std::make_shared<SceneUpdateContext>(
+      "fuchsia_layer_unittest", fuchsia::ui::views::ViewToken(),
+      scenic::ViewRefPair::New(), *(context->mock_session_wrapper));
 
   // Init PrerollContext.
   context->preroll_context = std::unique_ptr<PrerollContext>(new PrerollContext{
@@ -348,7 +294,6 @@ std::unique_ptr<TestContext> InitTest() {
       context->unused_texture_registry,  // texture registry (not
                                          // supported)
       false,                             // checkerboard_offscreen_layers
-      100.f,                             // maximum depth allowed for rendering
       1.f                                // ratio between logical and physical
   });
 
@@ -363,7 +308,7 @@ zx_koid_t GetChildLayerId() {
 class AutoDestroyChildLayerId {
  public:
   AutoDestroyChildLayerId(zx_koid_t id) : id_(id) {}
-  ~AutoDestroyChildLayerId() { ViewHolder::Destroy(id_); }
+  ~AutoDestroyChildLayerId() { ViewHolder::Destroy(id_, nullptr); }
 
  private:
   zx_koid_t id_;
@@ -405,9 +350,10 @@ TEST_F(FuchsiaLayerTest, DISABLED_PhysicalShapeLayersAndChildSceneLayers) {
   const zx_koid_t kChildLayerId1 = GetChildLayerId();
   auto [unused_view_token1, unused_view_holder_token1] =
       scenic::ViewTokenPair::New();
-  ViewHolder::Create(kChildLayerId1, test_context->task_runner,
-                     std::move(unused_view_holder_token1),
-                     /*bind_callback=*/[](scenic::ResourceId id) {});
+  ViewHolder::Create(
+      kChildLayerId1,
+      /*bind_callback=*/[](scenic::ResourceId id) {},
+      std::move(unused_view_holder_token1));
   // Will destroy only when we go out of scope (i.e. end of the test).
   AutoDestroyChildLayerId auto_destroy1(kChildLayerId1);
   auto child_view1 = std::make_shared<ChildSceneLayer>(
@@ -433,9 +379,10 @@ TEST_F(FuchsiaLayerTest, DISABLED_PhysicalShapeLayersAndChildSceneLayers) {
   const zx_koid_t kChildLayerId2 = GetChildLayerId();
   auto [unused_view_token2, unused_view_holder_token2] =
       scenic::ViewTokenPair::New();
-  ViewHolder::Create(kChildLayerId2, test_context->task_runner,
-                     std::move(unused_view_holder_token2),
-                     /*bind_callback=*/[](scenic::ResourceId id) {});
+  ViewHolder::Create(
+      kChildLayerId2,
+      /*bind_callback=*/[](scenic::ResourceId id) {},
+      std::move(unused_view_holder_token2));
   // Will destroy only when we go out of scope (i.e. end of the test).
   AutoDestroyChildLayerId auto_destroy2(kChildLayerId2);
   auto child_view2 = std::make_shared<ChildSceneLayer>(
@@ -455,7 +402,7 @@ TEST_F(FuchsiaLayerTest, DISABLED_PhysicalShapeLayersAndChildSceneLayers) {
 
   // Create another frame to be the "real" root. Required because
   // UpdateScene() traversal expects there to already be a top node.
-  SceneUpdateContext::Frame frame(*(test_context->scene_update_context),
+  SceneUpdateContext::Frame frame(test_context->scene_update_context,
                                   SkRRect::MakeRect(SkRect::MakeWH(100, 100)),
                                   SK_ColorTRANSPARENT, SK_AlphaOPAQUE,
                                   "fuchsia test root");
@@ -600,9 +547,9 @@ TEST_F(FuchsiaLayerTest, DISABLED_PhysicalShapeLayersAndChildSceneLayers) {
 
   // Finally, UpdateScene(). The MockSession will check the emitted commands
   // against the list above.
-  root->UpdateScene(*(test_context->scene_update_context));
+  root->UpdateScene(test_context->scene_update_context);
 
-  test_context->session->Flush();
+  test_context->mock_session_wrapper->Present();
 
   // Run loop until idle, so that the Session receives and processes
   // its method calls.
@@ -649,9 +596,10 @@ TEST_F(FuchsiaLayerTest, DISABLED_OpacityAndTransformLayer) {
   auto [unused_view_token1, unused_view_holder_token1] =
       scenic::ViewTokenPair::New();
 
-  ViewHolder::Create(kChildLayerId1, test_context->task_runner,
-                     std::move(unused_view_holder_token1),
-                     /*bind_callback=*/[](scenic::ResourceId id) {});
+  ViewHolder::Create(
+      kChildLayerId1,
+      /*bind_callback=*/[](scenic::ResourceId id) {},
+      std::move(unused_view_holder_token1));
   // Will destroy only when we go out of scope (i.e. end of the test).
   AutoDestroyChildLayerId auto_destroy1(kChildLayerId1);
   auto child_view1 = std::make_shared<ChildSceneLayer>(
@@ -671,7 +619,7 @@ TEST_F(FuchsiaLayerTest, DISABLED_OpacityAndTransformLayer) {
 
   // Create another frame to be the "real" root. Required because
   // UpdateScene() traversal expects there to already be a top node.
-  SceneUpdateContext::Frame frame(*(test_context->scene_update_context),
+  SceneUpdateContext::Frame frame(test_context->scene_update_context,
                                   SkRRect::MakeRect(SkRect::MakeWH(100, 100)),
                                   SK_ColorTRANSPARENT, SK_AlphaOPAQUE,
                                   "fuchsia test root");
@@ -782,9 +730,9 @@ TEST_F(FuchsiaLayerTest, DISABLED_OpacityAndTransformLayer) {
 
   // Finally, UpdateScene(). The MockSession will check the emitted
   // commands against the list above.
-  root->UpdateScene(*(test_context->scene_update_context));
+  root->UpdateScene(test_context->scene_update_context);
 
-  test_context->session->Flush();
+  test_context->mock_session_wrapper->Present();
 
   // Run loop until idle, so that the Session receives and processes
   // its method calls.

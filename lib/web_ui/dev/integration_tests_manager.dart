@@ -2,60 +2,41 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
+
 import 'dart:io' as io;
+import 'package:args/args.dart';
 import 'package:path/path.dart' as pathlib;
-import 'package:web_driver_installer/chrome_driver_installer.dart';
 
 import 'chrome_installer.dart';
+import 'driver_manager.dart';
 import 'environment.dart';
 import 'exceptions.dart';
 import 'common.dart';
 import 'utils.dart';
 
+const String _unsupportedConfigurationWarning = 'WARNING: integration tests '
+    'are only supported on Chrome, Firefox and on Safari (running on macOS)';
+
 class IntegrationTestsManager {
   final String _browser;
 
-  /// Installation directory for browser's driver.
-  ///
-  /// Always re-install since driver can change frequently.
-  /// It usually changes with each the browser version changes.
-  /// A better solution would be installing the browser and the driver at the
-  /// same time.
-  // TODO(nurhan): https://github.com/flutter/flutter/issues/53179. Partly
-  // solved. Remaining local integration tests using the locked Chrome version.
-  final io.Directory _browserDriverDir;
-
-  /// This is the parent directory for all drivers.
-  ///
-  /// This directory is saved to [temporaryDirectories] and deleted before
-  /// tests shutdown.
-  final io.Directory _drivers;
-
   final bool _useSystemFlutter;
 
-  IntegrationTestsManager(this._browser, this._useSystemFlutter)
-      : this._browserDriverDir = io.Directory(pathlib.join(
-            environment.webUiDartToolDir.path,
-            'drivers',
-            _browser,
-            '${_browser}driver-${io.Platform.operatingSystem.toString()}')),
-        this._drivers = io.Directory(
-            pathlib.join(environment.webUiDartToolDir.path, 'drivers'));
+  final DriverManager _driverManager;
+
+  final bool _doUpdateScreenshotGoldens;
+
+  IntegrationTestsManager(
+      this._browser, this._useSystemFlutter, this._doUpdateScreenshotGoldens)
+      : _driverManager = DriverManager.chooseDriver(_browser);
 
   Future<bool> runTests() async {
-    if (_browser != 'chrome') {
-      print('WARNING: integration tests are only supported on chrome for now');
-      return false;
-    } else {
-      if (!isLuci) {
-        // LUCI installs driver from CIPD, so we skip installing it on LUCI.
-        await _prepareDriver();
-      } else {
-        await _verifyDriverForLUCI();
-      }
-      await _startDriver(_browserDriverDir.path);
-      // TODO(nurhan): https://github.com/flutter/flutter/issues/52987
+    if (validateIfTestsShouldRun()) {
+      await _driverManager.prepareDriver();
       return await _runTests();
+    } else {
+      return false;
     }
   }
 
@@ -99,41 +80,6 @@ class IntegrationTestsManager {
         useSystemFlutter: _useSystemFlutter);
   }
 
-  /// Driver should already exist on LUCI as a CIPD package.
-  ///
-  /// Throw an error if directory does not exists.
-  void _verifyDriverForLUCI() {
-    if (!_browserDriverDir.existsSync()) {
-      throw StateError('Failed to locate Chrome driver on LUCI on path:'
-          '${_browserDriverDir.path}');
-    }
-  }
-
-  void _startDriver(String workingDirectory) async {
-    await startProcess('./chromedriver/chromedriver', ['--port=4444'],
-        workingDirectory: workingDirectory);
-    print('INFO: Driver started');
-  }
-
-  void _prepareDriver() async {
-    if (_browserDriverDir.existsSync()) {
-      _browserDriverDir.deleteSync(recursive: true);
-    }
-
-    _browserDriverDir.createSync(recursive: true);
-    temporaryDirectories.add(_drivers);
-
-    io.Directory temp = io.Directory.current;
-    io.Directory.current = _browserDriverDir;
-
-    // TODO(nurhan): https://github.com/flutter/flutter/issues/53179
-    final String chromeDriverVersion = await queryChromeDriverVersion();
-    ChromeDriverInstaller chromeDriverInstaller =
-        ChromeDriverInstaller.withVersion(chromeDriverVersion);
-    await chromeDriverInstaller.install(alwaysInstall: true);
-    io.Directory.current = temp;
-  }
-
   /// Runs all the web tests under e2e_tests/web.
   Future<bool> _runTests() async {
     // Only list the files under e2e_tests/web.
@@ -164,6 +110,9 @@ class IntegrationTestsManager {
     return testResults;
   }
 
+  int _numberOfPassedTests = 0;
+  int _numberOfFailedTests = 0;
+
   Future<bool> _runTestsInDirectory(io.Directory directory) async {
     final io.Directory testDirectory =
         io.Directory(pathlib.join(directory.path, 'test_driver'));
@@ -172,85 +121,139 @@ class IntegrationTestsManager {
         .whereType<io.File>()
         .toList();
 
-    final List<String> e2eTestsToRun = List<String>();
+    final List<String> e2eTestsToRun = <String>[];
     final List<String> blockedTests =
         blockedTestsListsMap[getBlockedTestsListMapKey(_browser)] ?? <String>[];
 
-    // The following loops over the contents of the directory and saves an
-    // expected driver file name for each e2e test assuming any dart file
-    // not ending with `_test.dart` is an e2e test.
-    // Other files are not considered since developers can add files such as
-    // README.
-    for (io.File f in entities) {
-      final String basename = pathlib.basename(f.path);
-      if (!basename.contains('_test.dart') && basename.endsWith('.dart')) {
-        // Do not add the basename if it is in the `blockedTests`.
-        if (!blockedTests.contains(basename)) {
-          e2eTestsToRun.add(basename);
-        } else {
-          print('INFO: Test $basename is skipped since it is blocked for '
-              '${getBlockedTestsListMapKey(_browser)}');
+    // If no target is specified run all the tests.
+    if (_runAllTestTargets) {
+      // The following loops over the contents of the directory and saves an
+      // expected driver file name for each e2e test assuming any dart file
+      // not ending with `_test.dart` is an e2e test.
+      // Other files are not considered since developers can add files such as
+      // README.
+      for (io.File f in entities) {
+        final String basename = pathlib.basename(f.path);
+        if (!basename.contains('_test.dart') && basename.endsWith('.dart')) {
+          // Do not add the basename if it is in the `blockedTests`.
+          if (!blockedTests.contains(basename)) {
+            e2eTestsToRun.add(basename);
+          } else {
+            print('INFO: Test $basename is skipped since it is blocked for '
+                '${getBlockedTestsListMapKey(_browser)}');
+          }
+        }
+      }
+      if (isVerboseLoggingEnabled) {
+        print(
+            'INFO: In project ${directory} ${e2eTestsToRun.length} tests to run.');
+      }
+    } else {
+      // If a target is specified it will run regardless of if it's blocked or
+      // not. There will be an info note to warn the developer.
+      final String targetTest =
+          IntegrationTestsArgumentParser.instance.testTarget;
+      final io.File file =
+          entities.singleWhere((f) => pathlib.basename(f.path) == targetTest);
+      final String basename = pathlib.basename(file.path);
+      if (blockedTests.contains(basename) && isVerboseLoggingEnabled) {
+        print('INFO: Test $basename do not run on CI environments. Please '
+            'remove it from the blocked tests list if you want to enable this '
+            'test on CI.');
+      }
+      e2eTestsToRun.add(basename);
+    }
+
+    final Set<String> buildModes = _getBuildModes();
+
+    for (String fileName in e2eTestsToRun) {
+      await _runTestsTarget(directory, fileName, buildModes);
+    }
+
+    final int numberOfTestsRun = _numberOfPassedTests + _numberOfFailedTests;
+
+    print('INFO: ${numberOfTestsRun} tests run. ${_numberOfPassedTests} passed '
+        'and ${_numberOfFailedTests} failed.');
+    return _numberOfFailedTests == 0;
+  }
+
+  Future<void> _runTestsTarget(
+      io.Directory directory, String target, Set<String> buildModes) async {
+    final Set<String> renderingBackends = _getRenderingBackends();
+    for (String renderingBackend in renderingBackends) {
+      for (String mode in buildModes) {
+        if (!blockedTestsListsMapForModes[mode].contains(target) &&
+            !blockedTestsListsMapForRenderBackends[renderingBackend]
+                .contains(target)) {
+          final bool result = await _runTestsInMode(directory, target,
+              mode: mode, webRenderer: renderingBackend);
+          if (result) {
+            _numberOfPassedTests++;
+          } else {
+            _numberOfFailedTests++;
+          }
         }
       }
     }
-
-    print(
-        'INFO: In project ${directory} ${e2eTestsToRun.length} tests to run.');
-
-    int numberOfPassedTests = 0;
-    int numberOfFailedTests = 0;
-    for (String fileName in e2eTestsToRun) {
-      final bool testResults =
-          await _runTestsInProfileMode(directory, fileName);
-      if (testResults) {
-        numberOfPassedTests++;
-      } else {
-        numberOfFailedTests++;
-      }
-    }
-    final int numberOfTestsRun = numberOfPassedTests + numberOfFailedTests;
-
-    print('INFO: ${numberOfTestsRun} tests run. ${numberOfPassedTests} passed '
-        'and ${numberOfFailedTests} failed.');
-    return numberOfFailedTests == 0;
   }
 
-  Future<bool> _runTestsInProfileMode(
-      io.Directory directory, String testName) async {
-    final String executable =
+  Future<bool> _runTestsInMode(io.Directory directory, String testName,
+      {String mode = 'profile', String webRenderer = 'html'}) async {
+    String executable =
         _useSystemFlutter ? 'flutter' : environment.flutterCommand.path;
+    Map<String, String> flutterEnvironment = Map<String, String>();
+    if (_doUpdateScreenshotGoldens) {
+      flutterEnvironment['UPDATE_GOLDENS'] = 'true';
+    }
+    final IntegrationArguments arguments =
+        IntegrationArguments.fromBrowser(_browser);
     final int exitCode = await runProcess(
       executable,
-      <String>[
-        'drive',
-        '--target=test_driver/${testName}',
-        '-d',
-        'web-server',
-        '--profile',
-        '--browser-name=$_browser',
-        if (isLuci) '--chrome-binary=${preinstalledChromeExecutable()}',
-        if (isLuci) '--headless',
-        '--local-engine=host_debug_unopt',
-      ],
+      arguments.getTestArguments(testName, mode, webRenderer),
       workingDirectory: directory.path,
+      environment: flutterEnvironment,
     );
 
     if (exitCode != 0) {
-      String statementToRun = 'flutter drive '
-          '--target=test_driver/${testName} -d web-server --profile '
-          '--browser-name=$_browser --local-engine=host_debug_unopt';
-      if (isLuci) {
-        statementToRun = '$statementToRun --chrome-binary='
-            '${preinstalledChromeExecutable()}';
-      }
+      final String command =
+          arguments.getCommandToRun(testName, mode, webRenderer);
       io.stderr
           .writeln('ERROR: Failed to run test. Exited with exit code $exitCode'
-              '. Statement to run $testName locally use the following '
-              'command:\n\n$statementToRun');
+              '. To run $testName locally use the following command:'
+              '\n\n$command');
       return false;
     } else {
       return true;
     }
+  }
+
+  Set<String> _getRenderingBackends() {
+    Set<String> renderingBackends;
+    if (_renderingBackendSelected) {
+      final String mode = IntegrationTestsArgumentParser.instance.webRenderer;
+      renderingBackends = <String>{mode};
+    } else {
+      // TODO(nurhan): Enable `auto` when recipe is sharded.
+      renderingBackends = {'html', 'canvaskit'};
+    }
+    return renderingBackends;
+  }
+
+  Set<String> _getBuildModes() {
+    Set<String> buildModes;
+    if (_buildModeSelected) {
+      final String mode = IntegrationTestsArgumentParser.instance.buildMode;
+      if (mode == 'debug' && _browser != 'chrome') {
+        throw ToolException('Debug mode is only supported for Chrome.');
+      } else {
+        buildModes = <String>{mode};
+      }
+    } else {
+      buildModes = _browser == 'chrome'
+          ? {'debug', 'profile', 'release'}
+          : {'profile', 'release'};
+    }
+    return buildModes;
   }
 
   /// Validate the directory has a `pubspec.yaml` file and a `test_driver`
@@ -265,7 +268,7 @@ class IntegrationTestsManager {
     // Whether the project has the pubspec.yaml file.
     bool pubSpecFound = false;
     // The test directory 'test_driver'.
-    io.Directory testDirectory = null;
+    io.Directory testDirectory;
 
     for (io.FileSystemEntity e in entities) {
       // The tests should be under this directories.
@@ -348,15 +351,233 @@ class IntegrationTestsManager {
         print('ERROR: Test driver file named has ${expectedDriverName} '
             'not found under directory ${testDirectory.path}. Stopping the '
             'integration tests. Please add ${expectedDriverName}. Check to '
-            'README file on more details on how to setup integration tests.');
+            'README file on more details on how to set up integration tests.');
       }
       throw StateError('Error in test files. Check the logs for '
           'further instructions');
     }
   }
+
+  bool get _buildModeSelected =>
+      !IntegrationTestsArgumentParser.instance.buildMode.isEmpty;
+
+  bool get _renderingBackendSelected =>
+      !IntegrationTestsArgumentParser.instance.webRenderer.isEmpty;
+
+  bool get _runAllTestTargets =>
+      IntegrationTestsArgumentParser.instance.testTarget.isEmpty;
+
+  /// Validate the given `browser`, `platform` combination is suitable for
+  /// integration tests to run.
+  bool validateIfTestsShouldRun() {
+    if (_buildModeSelected) {
+      final String mode = IntegrationTestsArgumentParser.instance.buildMode;
+      if (mode == 'debug' && _browser != 'chrome') {
+        throw ToolException('Debug mode is only supported for Chrome.');
+      }
+    }
+
+    // Chrome tests should run at all Platforms (Linux, macOS, Windows).
+    // They can also run successfully on CI and local.
+    if (_browser == 'chrome') {
+      return true;
+    } else if (_browser == 'firefox' &&
+        (io.Platform.isLinux || io.Platform.isMacOS)) {
+      return true;
+    } else if (_browser == 'safari' && io.Platform.isMacOS && !isLuci) {
+      return true;
+    } else {
+      io.stderr.writeln(_unsupportedConfigurationWarning);
+      return false;
+    }
+  }
 }
 
-/// Prepares a key for the [blockedTests] map.
+/// Interface for collecting arguments to give `flutter drive` to run the
+/// integration tests.
+abstract class IntegrationArguments {
+  IntegrationArguments();
+
+  factory IntegrationArguments.fromBrowser(String browser) {
+    if (browser == 'chrome') {
+      return ChromeIntegrationArguments();
+    } else if (browser == 'firefox') {
+      return FirefoxIntegrationArguments();
+    } else if (browser == 'safari' && io.Platform.isMacOS) {
+      return SafariIntegrationArguments();
+    } else {
+      throw StateError(_unsupportedConfigurationWarning);
+    }
+  }
+
+  List<String> getTestArguments(
+      String testName, String mode, String webRenderer);
+
+  String getCommandToRun(String testName, String mode, String webRenderer);
+}
+
+/// Arguments to give `flutter drive` to run the integration tests on Chrome.
+class ChromeIntegrationArguments extends IntegrationArguments {
+  List<String> getTestArguments(
+      String testName, String mode, String webRenderer) {
+    return <String>[
+      'drive',
+      '--target=test_driver/${testName}',
+      '-d',
+      'web-server',
+      '--$mode',
+      '--browser-name=chrome',
+      if (isLuci) '--chrome-binary=${preinstalledChromeExecutable()}',
+      '--headless',
+      '--local-engine=host_debug_unopt',
+      '--web-renderer=$webRenderer',
+    ];
+  }
+
+  String getCommandToRun(String testName, String mode, String webRenderer) {
+    String statementToRun = 'flutter drive '
+        '--target=test_driver/${testName} -d web-server --$mode '
+        '--browser-name=chrome --local-engine=host_debug_unopt '
+        '--web-renderer=$webRenderer';
+    if (isLuci) {
+      statementToRun = '$statementToRun --chrome-binary='
+          '${preinstalledChromeExecutable()}';
+    }
+    return statementToRun;
+  }
+}
+
+/// Arguments to give `flutter drive` to run the integration tests on Firefox.
+class FirefoxIntegrationArguments extends IntegrationArguments {
+  List<String> getTestArguments(
+      String testName, String mode, String webRenderer) {
+    return <String>[
+      'drive',
+      '--target=test_driver/${testName}',
+      '-d',
+      'web-server',
+      '--$mode',
+      '--browser-name=firefox',
+      '--headless',
+      '--local-engine=host_debug_unopt',
+      '--web-renderer=$webRenderer',
+    ];
+  }
+
+  String getCommandToRun(String testName, String mode, String webRenderer) {
+    final String arguments =
+        getTestArguments(testName, mode, webRenderer).join(' ');
+    return 'flutter $arguments';
+  }
+}
+
+/// Arguments to give `flutter drive` to run the integration tests on Safari.
+class SafariIntegrationArguments extends IntegrationArguments {
+  SafariIntegrationArguments();
+
+  List<String> getTestArguments(
+      String testName, String mode, String webRenderer) {
+    return <String>[
+      'drive',
+      '--target=test_driver/${testName}',
+      '-d',
+      'web-server',
+      '--$mode',
+      '--browser-name=safari',
+      '--local-engine=host_debug_unopt',
+      '--web-renderer=$webRenderer',
+    ];
+  }
+
+  String getCommandToRun(String testName, String mode, String webRenderer) {
+    final String arguments =
+        getTestArguments(testName, mode, webRenderer).join(' ');
+    return 'flutter $arguments';
+  }
+}
+
+/// Parses additional options that can be used when running integration tests.
+class IntegrationTestsArgumentParser {
+  static final IntegrationTestsArgumentParser _singletonInstance =
+      IntegrationTestsArgumentParser._();
+
+  /// The [IntegrationTestsArgumentParser] singleton.
+  static IntegrationTestsArgumentParser get instance => _singletonInstance;
+
+  IntegrationTestsArgumentParser._();
+
+  /// If target name is provided integration tests can run that one test
+  /// instead of running all the tests.
+  String testTarget;
+
+  /// The build mode to run the integration tests.
+  ///
+  /// If not specified, these tests will run using 'debug, profile, release'
+  /// modes on Chrome and will run using 'profile, release' on other browsers.
+  ///
+  /// In order to skip a test for one of the modes, add the test to the
+  /// `blockedTestsListsMapForModes` list for the relevant compile mode.
+  String buildMode;
+
+  /// Whether to use html, canvaskit or auto for web renderer.
+  ///
+  /// If not set all backends will be used one after another for integration
+  /// tests. If set only the provided option will be used.
+  String webRenderer;
+
+  void populateOptions(ArgParser argParser) {
+    argParser
+      ..addOption(
+        'target',
+        defaultsTo: '',
+        help: 'By default integration tests are run for all the tests under'
+            'flutter/e2etests/web directory. If a test name is specified, that '
+            'only that test will run. The test name will be the name of the '
+            'integration test (e2e test) file. For example: '
+            'text_editing_integration.dart or '
+            'profile_diagnostics_integration.dart',
+      )
+      ..addOption('build-mode',
+          defaultsTo: '',
+          help: 'Flutter supports three modes when building your app. This '
+              'option sets the build mode for the integration tests. '
+              'By default an integration test will sequentially run on '
+              'multiple modes. All three modes (debug, release, profile) are '
+              'used for Chrome. Only profile, release modes will be used for '
+              'other browsers. In other words, if a build mode is selected '
+              'tests will only be run using that mode. '
+              'See https://flutter.dev/docs/testing/build-modes for more '
+              'details on the build modes.')
+      ..addOption('web-renderer',
+          defaultsTo: '',
+          help: 'By default all three options (`html`, `canvaskit`, `auto`) '
+              ' for rendering backends are tested when running integration '
+              ' tests. If this option is set only the backend provided by this '
+              ' option will be used. `auto`, `canvaskit` and `html`'
+              ' are the available options. ');
+  }
+
+  /// Populate results of the arguments passed.
+  void parseOptions(ArgResults argResults) {
+    testTarget = argResults['target'] as String;
+    buildMode = argResults['build-mode'] as String;
+    if (!buildMode.isEmpty &&
+        buildMode != 'debug' &&
+        buildMode != 'profile' &&
+        buildMode != 'release') {
+      throw ArgumentError('Unexpected build mode: $buildMode');
+    }
+    webRenderer = argResults['web-renderer'] as String;
+    if (!webRenderer.isEmpty &&
+        webRenderer != 'html' &&
+        webRenderer != 'canvaskit' &&
+        webRenderer != 'auto') {
+      throw ArgumentError('Unexpected rendering backend: $webRenderer');
+    }
+  }
+}
+
+/// Prepares a key for the [blackList] map.
 ///
 /// Uses the browser name and the operating system name.
 String getBlockedTestsListMapKey(String browser) =>
@@ -375,11 +596,65 @@ String getBlockedTestsListMapKey(String browser) =>
 /// Note that integration tests are only running on chrome for now.
 const Map<String, List<String>> blockedTestsListsMap = <String, List<String>>{
   'chrome-linux': [
-    'target_platform_ios_e2e.dart',
-    'target_platform_macos_e2e.dart',
+    'target_platform_android_integration.dart',
+    'target_platform_ios_integration.dart',
+    'target_platform_macos_integration.dart',
   ],
   'chrome-macos': [
-    'target_platform_ios_e2e.dart',
-    'target_platform_android_e2e.dart',
+    'target_platform_ios_integration.dart',
+    'target_platform_android_integration.dart',
+  ],
+  'safari-macos': [
+    'target_platform_ios_integration.dart',
+    'target_platform_android_integration.dart',
+    'image_loading_integration.dart',
+  ],
+  'firefox-linux': [
+    'target_platform_android_integration.dart',
+    'target_platform_ios_integration.dart',
+    'target_platform_macos_integration.dart',
+  ],
+  'firefox-macos': [
+    'target_platform_android_integration.dart',
+    'target_platform_ios_integration.dart',
+  ],
+};
+
+/// Tests blocked for one of the build modes.
+///
+/// If a test is not supposed to run for one of the modes also add that test
+/// to the corresponding list.
+// TODO(nurhan): Remove the failing test after fixing.
+const Map<String, List<String>> blockedTestsListsMapForModes =
+    <String, List<String>>{
+  'debug': [
+    'treeshaking_integration.dart',
+    'text_editing_integration.dart',
+    'url_strategy_integration.dart',
+  ],
+  'profile': [],
+  'release': [],
+};
+
+/// Tests blocked for one of the rendering backends.
+///
+/// If a test is not suppose to run for one of the backends also add that test
+/// to the corresponding list.
+// TODO(nurhan): Remove the failing test after fixing.
+const Map<String, List<String>> blockedTestsListsMapForRenderBackends =
+    <String, List<String>>{
+  'auto': [
+    'image_loading_integration.dart',
+    'platform_messages_integration.dart',
+    'profile_diagnostics_integration.dart',
+    'scroll_wheel_integration.dart',
+    'text_editing_integration.dart',
+    'treeshaking_integration.dart',
+    'url_strategy_integration.dart',
+  ],
+  'html': [],
+  // This test failed on canvaskit on all three build modes.
+  'canvaskit': [
+    'image_loading_integration.dart',
   ],
 };

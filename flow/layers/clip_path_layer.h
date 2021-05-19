@@ -13,6 +13,12 @@ class ClipPathLayer : public ContainerLayer {
  public:
   ClipPathLayer(const SkPath& clip_path, Clip clip_behavior = Clip::antiAlias);
 
+#ifdef FLUTTER_ENABLE_DIFF_CONTEXT
+
+  void Diff(DiffContext* context, const Layer* old_layer) override;
+
+#endif  // FLUTTER_ENABLE_DIFF_CONTEXT
+
   void Preroll(PrerollContext* context, const SkMatrix& matrix) override;
 
   void Paint(PaintContext& context) const override;
@@ -21,14 +27,13 @@ class ClipPathLayer : public ContainerLayer {
     return clip_behavior_ == Clip::antiAliasWithSaveLayer;
   }
 
-#if defined(OS_FUCHSIA)
-  void UpdateScene(SceneUpdateContext& context) override;
-#endif  // defined(OS_FUCHSIA)
+#if defined(LEGACY_FUCHSIA_EMBEDDER)
+  void UpdateScene(std::shared_ptr<SceneUpdateContext> context) override;
+#endif
 
  private:
   SkPath clip_path_;
   Clip clip_behavior_;
-  bool children_inside_clip_ = false;
 
   FML_DISALLOW_COPY_AND_ASSIGN(ClipPathLayer);
 };

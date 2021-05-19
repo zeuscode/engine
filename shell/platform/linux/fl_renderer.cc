@@ -4,163 +4,87 @@
 
 #include "fl_renderer.h"
 
+#include <epoxy/egl.h>
+#include <epoxy/gl.h>
+
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "flutter/shell/platform/linux/fl_backing_store_provider.h"
+#include "flutter/shell/platform/linux/fl_engine_private.h"
 
 G_DEFINE_QUARK(fl_renderer_error_quark, fl_renderer_error)
 
 typedef struct {
-  EGLDisplay egl_display;
-  EGLSurface egl_surface;
-  EGLContext egl_context;
+  FlView* view;
 
-  EGLSurface resource_surface;
-  EGLContext resource_context;
+  // target dimension for resizing
+  int target_width;
+  int target_height;
+
+  // whether the renderer waits for frame render
+  bool blocking_main_thread;
+
+  // true if frame was completed; resizing is not synchronized until first frame
+  // was rendered
+  bool had_first_frame;
+
+  GdkGLContext* main_context;
+  GdkGLContext* resource_context;
 } FlRendererPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE(FlRenderer, fl_renderer, G_TYPE_OBJECT)
 
-// Gets a string representation of the last EGL error.
-static const gchar* get_egl_error() {
-  EGLint error = eglGetError();
-  switch (error) {
-    case EGL_SUCCESS:
-      return "Success";
-    case EGL_NOT_INITIALIZED:
-      return "Not Initialized";
-    case EGL_BAD_ACCESS:
-      return "Bad Access";
-    case EGL_BAD_ALLOC:
-      return "Bad Allocation";
-    case EGL_BAD_ATTRIBUTE:
-      return "Bad Attribute";
-    case EGL_BAD_CONTEXT:
-      return "Bad Context";
-    case EGL_BAD_CONFIG:
-      return "Bad Configuration";
-    case EGL_BAD_CURRENT_SURFACE:
-      return "Bad Current Surface";
-    case EGL_BAD_DISPLAY:
-      return "Bad Display";
-    case EGL_BAD_SURFACE:
-      return "Bad Surface";
-    case EGL_BAD_MATCH:
-      return "Bad Match";
-    case EGL_BAD_PARAMETER:
-      return "Bad Parameter";
-    case EGL_BAD_NATIVE_PIXMAP:
-      return "Bad Native Pixmap";
-    case EGL_BAD_NATIVE_WINDOW:
-      return "Bad Native Window";
-    case EGL_CONTEXT_LOST:
-      return "Context Lost";
-    default:
-      return "Unknown Error";
+static void fl_renderer_unblock_main_thread(FlRenderer* self) {
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+  if (priv->blocking_main_thread) {
+    priv->blocking_main_thread = false;
+
+    FlTaskRunner* runner =
+        fl_engine_get_task_runner(fl_view_get_engine(priv->view));
+    fl_task_runner_release_main_thread(runner);
   }
 }
 
-// Creates a resource surface.
-static void create_resource_surface(FlRenderer* self, EGLConfig config) {
-  FlRendererPrivate* priv =
-      static_cast<FlRendererPrivate*>(fl_renderer_get_instance_private(self));
-
-  EGLint context_attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
-  const EGLint resource_context_attribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1,
-                                             EGL_NONE};
-  priv->resource_surface = eglCreatePbufferSurface(priv->egl_display, config,
-                                                   resource_context_attribs);
-  if (priv->resource_surface != nullptr) {
-    g_warning("Failed to create EGL resource surface: %s", get_egl_error());
-    return;
-  }
-
-  priv->resource_context = eglCreateContext(
-      priv->egl_display, config, priv->egl_context, context_attributes);
-  if (priv->resource_context == nullptr)
-    g_warning("Failed to create EGL resource context: %s", get_egl_error());
-}
-
-// Default implementation for the start virtual method.
-// Provided so subclasses can chain up to here.
-static gboolean fl_renderer_real_start(FlRenderer* self, GError** error) {
-  FlRendererPrivate* priv =
-      static_cast<FlRendererPrivate*>(fl_renderer_get_instance_private(self));
-
-  // Note the use of EGL_DEFAULT_DISPLAY rather than sharing an existing
-  // display connection (e.g. an X11 connection from GTK). This is because
-  // this EGL display is going to be accessed by a thread from Flutter. In the
-  // case of GTK/X11 the display connection is not thread safe and this would
-  // cause a crash.
-  priv->egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-
-  if (!eglInitialize(priv->egl_display, nullptr, nullptr)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to initialze EGL");
-    return FALSE;
-  }
-
-  EGLint attributes[] = {EGL_RENDERABLE_TYPE,
-                         EGL_OPENGL_ES2_BIT,
-                         EGL_RED_SIZE,
-                         8,
-                         EGL_GREEN_SIZE,
-                         8,
-                         EGL_BLUE_SIZE,
-                         8,
-                         EGL_ALPHA_SIZE,
-                         8,
-                         EGL_NONE};
-  EGLConfig egl_config;
-  EGLint n_config;
-  if (!eglChooseConfig(priv->egl_display, attributes, &egl_config, 1,
-                       &n_config)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to choose EGL config: %s", get_egl_error());
-    return FALSE;
-  }
-  if (n_config == 0) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to find appropriate EGL config: %s", get_egl_error());
-    return FALSE;
-  }
-  if (!eglBindAPI(EGL_OPENGL_ES_API)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to bind EGL OpenGL ES API: %s", get_egl_error());
-    return FALSE;
-  }
-
-  priv->egl_surface = FL_RENDERER_GET_CLASS(self)->create_surface(
-      self, priv->egl_display, egl_config);
-  if (priv->egl_surface == nullptr) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to create EGL surface: %s", get_egl_error());
-    return FALSE;
-  }
-  EGLint context_attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
-  priv->egl_context = eglCreateContext(priv->egl_display, egl_config,
-                                       EGL_NO_CONTEXT, context_attributes);
-  if (priv->egl_context == nullptr) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to create EGL context: %s", get_egl_error());
-    return FALSE;
-  }
-
-  create_resource_surface(self, egl_config);
-
-  EGLint value;
-  eglQueryContext(priv->egl_display, priv->egl_context,
-                  EGL_CONTEXT_CLIENT_VERSION, &value);
-
-  return TRUE;
+static void fl_renderer_dispose(GObject* self) {
+  fl_renderer_unblock_main_thread(FL_RENDERER(self));
+  G_OBJECT_CLASS(fl_renderer_parent_class)->dispose(self);
 }
 
 static void fl_renderer_class_init(FlRendererClass* klass) {
-  klass->start = fl_renderer_real_start;
+  G_OBJECT_CLASS(klass)->dispose = fl_renderer_dispose;
 }
 
 static void fl_renderer_init(FlRenderer* self) {}
 
-gboolean fl_renderer_start(FlRenderer* self, GError** error) {
-  return FL_RENDERER_GET_CLASS(self)->start(self, error);
+gboolean fl_renderer_start(FlRenderer* self, FlView* view, GError** error) {
+  g_return_val_if_fail(FL_IS_RENDERER(self), FALSE);
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+  priv->view = view;
+  gboolean result = FL_RENDERER_GET_CLASS(self)->create_contexts(
+      self, GTK_WIDGET(view), &priv->main_context, &priv->resource_context,
+      error);
+
+  if (result) {
+    gdk_gl_context_realize(priv->main_context, error);
+    gdk_gl_context_realize(priv->resource_context, error);
+  }
+
+  if (*error != nullptr)
+    return FALSE;
+  return TRUE;
+}
+
+FlView* fl_renderer_get_view(FlRenderer* self) {
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+  return priv->view;
+}
+
+GdkGLContext* fl_renderer_get_context(FlRenderer* self) {
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+  return priv->main_context;
 }
 
 void* fl_renderer_get_proc_address(FlRenderer* self, const char* name) {
@@ -168,47 +92,27 @@ void* fl_renderer_get_proc_address(FlRenderer* self, const char* name) {
 }
 
 gboolean fl_renderer_make_current(FlRenderer* self, GError** error) {
-  FlRendererPrivate* priv =
-      static_cast<FlRendererPrivate*>(fl_renderer_get_instance_private(self));
-
-  if (!eglMakeCurrent(priv->egl_display, priv->egl_surface, priv->egl_surface,
-                      priv->egl_context)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to make EGL context current: %s", get_egl_error());
-    return FALSE;
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+  if (priv->main_context) {
+    gdk_gl_context_make_current(priv->main_context);
   }
 
   return TRUE;
 }
 
 gboolean fl_renderer_make_resource_current(FlRenderer* self, GError** error) {
-  FlRendererPrivate* priv =
-      static_cast<FlRendererPrivate*>(fl_renderer_get_instance_private(self));
-
-  if (priv->resource_surface == nullptr || priv->resource_context == nullptr)
-    return FALSE;
-
-  if (!eglMakeCurrent(priv->egl_display, priv->resource_surface,
-                      priv->resource_surface, priv->resource_context)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to make EGL context current: %s", get_egl_error());
-    return FALSE;
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+  if (priv->resource_context) {
+    gdk_gl_context_make_current(priv->resource_context);
   }
 
   return TRUE;
 }
 
 gboolean fl_renderer_clear_current(FlRenderer* self, GError** error) {
-  FlRendererPrivate* priv =
-      static_cast<FlRendererPrivate*>(fl_renderer_get_instance_private(self));
-
-  if (!eglMakeCurrent(priv->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
-                      EGL_NO_CONTEXT)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to clear EGL context: %s", get_egl_error());
-    return FALSE;
-  }
-
+  gdk_gl_context_clear_current();
   return TRUE;
 }
 
@@ -218,14 +122,60 @@ guint32 fl_renderer_get_fbo(FlRenderer* self) {
 }
 
 gboolean fl_renderer_present(FlRenderer* self, GError** error) {
-  FlRendererPrivate* priv =
-      static_cast<FlRendererPrivate*>(fl_renderer_get_instance_private(self));
+  return TRUE;
+}
 
-  if (!eglSwapBuffers(priv->egl_display, priv->egl_surface)) {
-    g_set_error(error, fl_renderer_error_quark(), FL_RENDERER_ERROR_FAILED,
-                "Failed to swap EGL buffers: %s", get_egl_error());
-    return FALSE;
+gboolean fl_renderer_create_backing_store(
+    FlRenderer* self,
+    const FlutterBackingStoreConfig* config,
+    FlutterBackingStore* backing_store_out) {
+  return FL_RENDERER_GET_CLASS(self)->create_backing_store(self, config,
+                                                           backing_store_out);
+}
+
+gboolean fl_renderer_collect_backing_store(
+    FlRenderer* self,
+    const FlutterBackingStore* backing_store) {
+  return FL_RENDERER_GET_CLASS(self)->collect_backing_store(self,
+                                                            backing_store);
+}
+
+void fl_renderer_wait_for_frame(FlRenderer* self,
+                                int target_width,
+                                int target_height) {
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+
+  priv->target_width = target_width;
+  priv->target_height = target_height;
+
+  if (priv->had_first_frame && !priv->blocking_main_thread) {
+    priv->blocking_main_thread = true;
+    FlTaskRunner* runner =
+        fl_engine_get_task_runner(fl_view_get_engine(priv->view));
+    fl_task_runner_block_main_thread(runner);
+  }
+}
+
+gboolean fl_renderer_present_layers(FlRenderer* self,
+                                    const FlutterLayer** layers,
+                                    size_t layers_count) {
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+
+  // ignore incoming frame with wrong dimensions in trivial case with just one
+  // layer
+  if (priv->blocking_main_thread && layers_count == 1 &&
+      layers[0]->offset.x == 0 && layers[0]->offset.y == 0 &&
+      (layers[0]->size.width != priv->target_width ||
+       layers[0]->size.height != priv->target_height)) {
+    return true;
   }
 
-  return TRUE;
+  priv->had_first_frame = true;
+
+  fl_renderer_unblock_main_thread(self);
+
+  return FL_RENDERER_GET_CLASS(self)->present_layers(self, layers,
+                                                     layers_count);
 }

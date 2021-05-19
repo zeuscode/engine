@@ -10,7 +10,7 @@
 #include "flutter/fml/memory/weak_ptr.h"
 #include "flutter/fml/platform/darwin/scoped_block.h"
 #include "flutter/lib/ui/window/platform_message.h"
-#include "flutter/shell/platform/darwin/common/framework/Headers/FlutterBinaryMessenger.h"
+#import "flutter/shell/platform/darwin/common/framework/Headers/FlutterBinaryMessenger.h"
 
 namespace flutter {
 
@@ -20,7 +20,7 @@ class PlatformMessageRouter {
   ~PlatformMessageRouter();
 
   void HandlePlatformMessage(
-      fml::RefPtr<flutter::PlatformMessage> message) const;
+      std::unique_ptr<flutter::PlatformMessage> message) const;
 
   void SetMessageHandler(const std::string& channel,
                          FlutterBinaryMessageHandler handler);

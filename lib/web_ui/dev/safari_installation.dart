@@ -7,9 +7,11 @@ import 'dart:async';
 import 'dart:io' as io;
 
 import 'package:args/args.dart';
+import 'package:simulators/simulator_manager.dart';
 import 'package:yaml/yaml.dart';
 
 import 'common.dart';
+import 'utils.dart';
 
 class SafariArgParser extends BrowserArgParser {
   static final SafariArgParser _singletonInstance = SafariArgParser._();
@@ -74,6 +76,48 @@ class IosSafariArgParser extends BrowserArgParser {
 
   IosSafariArgParser._();
 
+  /// Returns [IosSimulator] if the [Platform] is `macOS` and simulator
+  /// is started.
+  ///
+  /// Throws an [StateError] if these two conditions are not met.
+  IosSimulator get iosSimulator => io.Platform.isMacOS
+      ? (_iosSimulator != null
+          ? _iosSimulator
+          : throw StateError('iosSimulator not started. Please first call '
+              'initIOSSimulator method'))
+      : throw StateError('iOS Simulator is only available on macOS machines.');
+
+  IosSimulator _iosSimulator;
+
+  /// Inializes and boots an [IosSimulator] using the [iosMajorVersion],
+  /// [iosMinorVersion] and [iosDevice] arguments.
+  Future<void> initIosSimulator() async {
+    if (_iosSimulator != null) {
+      throw StateError('_iosSimulator can only be initialized once');
+    }
+    final IosSimulatorManager iosSimulatorManager = IosSimulatorManager();
+    try {
+      _iosSimulator = await iosSimulatorManager.getSimulator(
+        iosMajorVersion,
+        iosMinorVersion,
+        iosDevice,
+      );
+    } catch (e) {
+      throw Exception('Error getting requested simulator. Try running '
+          '`felt create` command first before running the tests. Exception: '
+          '$e');
+    }
+
+    if (!_iosSimulator.booted) {
+      await _iosSimulator.boot();
+      print('INFO: Simulator ${_iosSimulator.id} booted.');
+      cleanupCallbacks.add(() async {
+        await _iosSimulator.shutdown();
+        print('INFO: Simulator ${_iosSimulator.id} shutdown.');
+      });
+    }
+  }
+
   @override
   void populateOptions(ArgParser argParser) {
     final YamlMap browserLock = BrowserLock.instance.configuration;
@@ -95,7 +139,7 @@ class IosSafariArgParser extends BrowserArgParser {
       ..addOption('device',
           defaultsTo: '$_pinnedIosDevice',
           help: 'The device to be used for the iOS Simulator during the tests. '
-              'Use `.` instead of space for seperating the words. '
+              'Use `.` instead of space for separating the words. '
               'Common examples: iPhone.8, iPhone.8.Plus, iPhone.11, '
               'iPhone 11 Pro. Use command: '
               '`xcrun simctl list devices` for listing the available '
@@ -106,7 +150,7 @@ class IosSafariArgParser extends BrowserArgParser {
   @override
   void parseOptions(ArgResults argResults) {
     final String iosVersion = argResults['version'] as String;
-    // The version will contain major and minor version seperated by a comma,
+    // The version will contain major and minor version separated by a comma,
     // for example: 13.1, 12.2
     assert(iosVersion.split('.').length == 2,
         'The version should be in format 13.5');

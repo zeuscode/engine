@@ -12,19 +12,22 @@ MockTexture::MockTexture(int64_t textureId) : Texture(textureId) {}
 void MockTexture::Paint(SkCanvas& canvas,
                         const SkRect& bounds,
                         bool freeze,
-                        GrContext* context) {
-  paint_calls_.emplace_back(PaintCall{canvas, bounds, freeze, context});
+                        GrDirectContext* context,
+                        const SkSamplingOptions& sampling) {
+  paint_calls_.emplace_back(
+      PaintCall{canvas, bounds, freeze, context, sampling});
 }
 
 bool operator==(const MockTexture::PaintCall& a,
                 const MockTexture::PaintCall& b) {
   return &a.canvas == &b.canvas && a.bounds == b.bounds &&
-         a.context == b.context && a.freeze == b.freeze;
+         a.context == b.context && a.freeze == b.freeze &&
+         a.sampling == b.sampling;
 }
 
 std::ostream& operator<<(std::ostream& os, const MockTexture::PaintCall& data) {
   return os << &data.canvas << " " << data.bounds << " " << data.context << " "
-            << data.freeze;
+            << data.freeze << " " << data.sampling;
 }
 
 }  // namespace testing

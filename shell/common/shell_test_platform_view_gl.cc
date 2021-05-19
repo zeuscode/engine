@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "flutter/shell/common/shell_test_platform_view_gl.h"
+
 #include "flutter/shell/gpu/gpu_surface_gl.h"
 
 namespace flutter {
@@ -27,6 +28,7 @@ std::unique_ptr<VsyncWaiter> ShellTestPlatformViewGL::CreateVSyncWaiter() {
   return create_vsync_waiter_();
 }
 
+// |ShellTestPlatformView|
 void ShellTestPlatformViewGL::SimulateVSync() {
   vsync_clock_->SimulateVSync();
 }
@@ -34,6 +36,12 @@ void ShellTestPlatformViewGL::SimulateVSync() {
 // |PlatformView|
 std::unique_ptr<Surface> ShellTestPlatformViewGL::CreateRenderingSurface() {
   return std::make_unique<GPUSurfaceGL>(this, true);
+}
+
+// |PlatformView|
+std::shared_ptr<ExternalViewEmbedder>
+ShellTestPlatformViewGL::CreateExternalViewEmbedder() {
+  return shell_test_external_view_embedder_;
 }
 
 // |PlatformView|
@@ -55,13 +63,13 @@ bool ShellTestPlatformViewGL::GLContextClearCurrent() {
 }
 
 // |GPUSurfaceGLDelegate|
-bool ShellTestPlatformViewGL::GLContextPresent() {
+bool ShellTestPlatformViewGL::GLContextPresent(uint32_t fbo_id) {
   return gl_surface_.Present();
 }
 
 // |GPUSurfaceGLDelegate|
-intptr_t ShellTestPlatformViewGL::GLContextFBO() const {
-  return gl_surface_.GetFramebuffer();
+intptr_t ShellTestPlatformViewGL::GLContextFBO(GLFrameInfo frame_info) const {
+  return gl_surface_.GetFramebuffer(frame_info.width, frame_info.height);
 }
 
 // |GPUSurfaceGLDelegate|
@@ -70,11 +78,6 @@ ShellTestPlatformViewGL::GetGLProcResolver() const {
   return [surface = &gl_surface_](const char* name) -> void* {
     return surface->GetProcAddress(name);
   };
-}
-
-// |GPUSurfaceGLDelegate|
-ExternalViewEmbedder* ShellTestPlatformViewGL::GetExternalViewEmbedder() {
-  return shell_test_external_view_embedder_.get();
 }
 
 }  // namespace testing

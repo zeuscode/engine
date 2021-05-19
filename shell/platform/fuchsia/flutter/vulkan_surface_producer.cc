@@ -14,8 +14,9 @@
 #include "flutter/fml/trace_event.h"
 #include "third_party/skia/include/gpu/GrBackendSemaphore.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
-#include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/vk/GrVkBackendContext.h"
+#include "third_party/skia/include/gpu/vk/GrVkExtensions.h"
 #include "third_party/skia/include/gpu/vk/GrVkTypes.h"
 
 namespace flutter_runner {
@@ -39,12 +40,8 @@ constexpr size_t kGrCacheMaxByteSize = 1024 * 600 * 12 * 4;
 VulkanSurfaceProducer::VulkanSurfaceProducer(scenic::Session* scenic_session) {
   valid_ = Initialize(scenic_session);
 
-  if (valid_) {
-    FML_DLOG(INFO)
-        << "Flutter engine: Vulkan surface producer initialization: Successful";
-  } else {
-    FML_LOG(ERROR)
-        << "Flutter engine: Vulkan surface producer initialization: Failed";
+  if (!valid_) {
+    FML_LOG(FATAL) << "VulkanSurfaceProducer: Initialization failed";
   }
 }
 
@@ -72,9 +69,10 @@ bool VulkanSurfaceProducer::Initialize(scenic::Session* scenic_session) {
       VK_MAKE_VERSION(1, 1, 0), true /* enable_validation_layers */);
 
   if (!application_->IsValid() || !vk_->AreInstanceProcsSetup()) {
-    // Make certain the application instance was created and it setup the
+    // Make certain the application instance was created and it set up the
     // instance proc table entries.
-    FML_LOG(ERROR) << "Instance proc addresses have not been setup.";
+    FML_LOG(ERROR) << "VulkanSurfaceProducer: Instance proc addresses have not "
+                      "been set up.";
     return false;
   }
 
@@ -84,32 +82,35 @@ bool VulkanSurfaceProducer::Initialize(scenic::Session* scenic_session) {
 
   if (logical_device_ == nullptr || !logical_device_->IsValid() ||
       !vk_->AreDeviceProcsSetup()) {
-    // Make certain the device was created and it setup the device proc table
+    // Make certain the device was created and it set up the device proc table
     // entries.
-    FML_LOG(ERROR) << "Device proc addresses have not been setup.";
+    FML_LOG(ERROR)
+        << "VulkanSurfaceProducer: Device proc addresses have not been set up.";
     return false;
   }
 
   if (!vk_->HasAcquiredMandatoryProcAddresses()) {
-    FML_LOG(ERROR) << "Failed to acquire mandatory proc addresses.";
+    FML_LOG(ERROR)
+        << "VulkanSurfaceProducer: Failed to acquire mandatory proc addresses.";
     return false;
   }
 
   if (!vk_->IsValid()) {
-    FML_LOG(ERROR) << "VulkanProcTable invalid";
+    FML_LOG(ERROR) << "VulkanSurfaceProducer: VulkanProcTable invalid";
     return false;
   }
 
   auto getProc = vk_->CreateSkiaGetProc();
 
   if (getProc == nullptr) {
-    FML_LOG(ERROR) << "Failed to create skia getProc.";
+    FML_LOG(ERROR) << "VulkanSurfaceProducer: Failed to create skia getProc.";
     return false;
   }
 
   uint32_t skia_features = 0;
   if (!logical_device_->GetPhysicalDeviceFeaturesSkia(&skia_features)) {
-    FML_LOG(ERROR) << "Failed to get physical device features.";
+    FML_LOG(ERROR)
+        << "VulkanSurfaceProducer: Failed to get physical device features.";
 
     return false;
   }
@@ -126,11 +127,22 @@ bool VulkanSurfaceProducer::Initialize(scenic::Session* scenic_session) {
   backend_context.fFeatures = skia_features;
   backend_context.fGetProc = std::move(getProc);
   backend_context.fOwnsInstanceAndDevice = false;
+  // The memory_requirements_2 extension is required on Fuchsia as the AMD
+  // memory allocator used by Skia benefit from it.
+  const char* device_extensions[] = {
+      VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+  };
+  GrVkExtensions vk_extensions;
+  vk_extensions.init(backend_context.fGetProc, backend_context.fInstance,
+                     backend_context.fPhysicalDevice, 0, nullptr,
+                     countof(device_extensions), device_extensions);
+  backend_context.fVkExtensions = &vk_extensions;
 
-  context_ = GrContext::MakeVulkan(backend_context);
+  context_ = GrDirectContext::MakeVulkan(backend_context);
 
   if (context_ == nullptr) {
-    FML_LOG(ERROR) << "Failed to create GrContext.";
+    FML_LOG(ERROR)
+        << "VulkanSurfaceProducer: Failed to create GrDirectContext.";
     return false;
   }
 
@@ -144,14 +156,12 @@ bool VulkanSurfaceProducer::Initialize(scenic::Session* scenic_session) {
 }
 
 void VulkanSurfaceProducer::OnSurfacesPresented(
-    std::vector<
-        std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>>
-        surfaces) {
+    std::vector<std::unique_ptr<SurfaceProducerSurface>> surfaces) {
   TRACE_EVENT0("flutter", "VulkanSurfaceProducer::OnSurfacesPresented");
 
   // Do a single flush for all canvases derived from the context.
   {
-    TRACE_EVENT0("flutter", "GrContext::flushAndSignalSemaphores");
+    TRACE_EVENT0("flutter", "GrDirectContext::flushAndSignalSemaphores");
     context_->flushAndSubmit();
   }
 
@@ -186,11 +196,12 @@ void VulkanSurfaceProducer::OnSurfacesPresented(
 }
 
 bool VulkanSurfaceProducer::TransitionSurfacesToExternal(
-    const std::vector<
-        std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>>&
-        surfaces) {
+    const std::vector<std::unique_ptr<SurfaceProducerSurface>>& surfaces) {
   for (auto& surface : surfaces) {
     auto vk_surface = static_cast<VulkanSurface*>(surface.get());
+    if (!vk_surface) {
+      continue;
+    }
 
     vulkan::VulkanCommandBuffer* command_buffer =
         vk_surface->GetCommandBuffer(logical_device_->GetCommandPool());
@@ -248,23 +259,22 @@ bool VulkanSurfaceProducer::TransitionSurfacesToExternal(
   return true;
 }
 
-std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>
-VulkanSurfaceProducer::ProduceSurface(
-    const SkISize& size,
-    const flutter::LayerRasterCacheKey& layer_key,
-    std::unique_ptr<scenic::EntityNode> entity_node) {
-  FML_DCHECK(valid_);
+std::unique_ptr<SurfaceProducerSurface> VulkanSurfaceProducer::ProduceSurface(
+    const SkISize& size) {
+  FML_CHECK(valid_);
   last_produce_time_ = async::Now(async_get_default_dispatcher());
-  auto surface = surface_pool_->AcquireSurface(size);
-  surface->SetRetainedInfo(layer_key, std::move(entity_node));
-  return surface;
+  return surface_pool_->AcquireSurface(size);
 }
 
 void VulkanSurfaceProducer::SubmitSurface(
-    std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>
-        surface) {
-  FML_DCHECK(valid_ && surface != nullptr);
+    std::unique_ptr<SurfaceProducerSurface> surface) {
+  FML_CHECK(valid_);
   surface_pool_->SubmitSurface(std::move(surface));
+}
+
+std::unique_ptr<SurfaceProducerSurface>
+VulkanSurfaceProducer::ProduceOffscreenSurface(const SkISize& size) {
+  return surface_pool_->CreateSurface(size);
 }
 
 }  // namespace flutter_runner
